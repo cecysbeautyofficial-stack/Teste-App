@@ -1,12 +1,13 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { Author, Book, User } from '../types';
-import { ArrowLeftIcon, UserPlusIcon, TwitterIcon, InstagramIcon, LinkIcon, CheckCircleIcon, SearchIcon, StarIcon } from './Icons';
+import { ArrowLeftIcon, UserPlusIcon, TwitterIcon, InstagramIcon, LinkIcon, CheckCircleIcon, SearchIcon, StarIcon, ChatBubbleIcon } from './Icons';
 import BookCard from './BookCard';
 import { useAppContext } from '../contexts/AppContext';
 import UserControls from './UserControls';
 import Pagination from './Pagination';
 import SearchInput from './SearchInput';
+import BecomeAuthorCTA from './BecomeAuthorCTA';
 
 interface AuthorProfileProps {
   author: Author;
@@ -25,12 +26,14 @@ interface AuthorProfileProps {
   onLogout: () => void;
   onNavigateToDashboard: () => void;
   onNavigateSettings: () => void;
+  onOpenChat: () => void;
+  onBecomeAuthor: () => void;
 }
 
 const AuthorProfile: React.FC<AuthorProfileProps> = ({ 
     author, booksByAuthor, onBack, onSelectBook, onReadBook, purchasedBooks, 
     favoritedBooks, onToggleFavorite, isFollowing, onToggleFollow,
-    currentUser, onLogin, onRegister, onLogout, onNavigateToDashboard, onNavigateSettings
+    currentUser, onLogin, onRegister, onLogout, onNavigateToDashboard, onNavigateSettings, onOpenChat, onBecomeAuthor
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -143,13 +146,20 @@ const AuthorProfile: React.FC<AuthorProfileProps> = ({
             <div className="mt-8 flex flex-wrap justify-center items-center gap-4">
                 <button
                 onClick={() => onToggleFollow(author.id)}
-                className={`font-bold py-3 px-10 rounded-full flex items-center gap-2 transition-all duration-200 active:scale-95 shadow-lg ${
+                className={`font-bold py-3 px-8 rounded-full flex items-center gap-2 transition-all duration-200 active:scale-95 shadow-lg ${
                     isFollowing 
                     ? 'bg-white/50 dark:bg-white/10 border-2 border-indigo-600 dark:border-indigo-500 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 backdrop-blur-sm' 
                     : 'bg-gray-900 dark:bg-white text-white dark:text-black hover:bg-gray-800 dark:hover:bg-gray-200'
                 }`}
                 >
                 {isFollowing ? t('following') : t('follow')}
+                </button>
+                <button
+                    onClick={onOpenChat}
+                    className="font-bold py-3 px-8 rounded-full flex items-center gap-2 transition-all duration-200 active:scale-95 shadow-lg bg-brand-blue text-white hover:bg-blue-800 border-2 border-transparent"
+                >
+                    <ChatBubbleIcon className="h-5 w-5" />
+                    <span>Mensagem</span>
                 </button>
             </div>
             
@@ -219,6 +229,10 @@ const AuthorProfile: React.FC<AuthorProfileProps> = ({
                 <p className="text-gray-500 dark:text-gray-400 text-lg">{t('noResultsFound')} "{searchQuery}".</p>
                 </div>
             )}
+            </div>
+
+            <div className="mt-16">
+                <BecomeAuthorCTA onAction={onBecomeAuthor} />
             </div>
         </div>
       </div>

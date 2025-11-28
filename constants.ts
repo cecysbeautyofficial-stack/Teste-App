@@ -1,5 +1,4 @@
-
-import { Author, Book, User, Purchase, PaymentMethod, Review, Notification } from './types';
+import { Author, Book, User, Purchase, PaymentMethod, Review, Notification, Chat, NewsArticle } from './types';
 
 export const authors: Author[] = [
   {
@@ -78,6 +77,56 @@ export const mockRegisteredUsers: User[] = [
     { id: 'admin-user-01', name: 'Admin', email: 'admin@leiaaqui.com', password: '123456', role: 'admin', status: 'active', avatarUrl: 'https://i.pravatar.cc/150?u=admin-user-01', whatsapp: '840000001', preferredPaymentMethod: 'Cartão de Crédito', notificationsEnabled: true, emailNotificationsEnabled: true, following: [] },
     { id: 'author-user-01', name: 'Beto Autor', email: 'author@leiaaqui.com', password: '123456', role: 'author', status: 'active', avatarUrl: 'https://i.pravatar.cc/150?u=a042581f4e29026704d', whatsapp: '840000002', preferredPaymentMethod: 'E-Mola', notificationsEnabled: true, emailNotificationsEnabled: true, following: ['5', '3'] },
     { id: 'reader-user-01', name: 'Alice Leitora', email: 'reader@leiaaqui.com', password: '123456', role: 'reader', status: 'active', avatarUrl: 'https://i.pravatar.cc/150?u=reader-user-01', whatsapp: '840000003', preferredPaymentMethod: 'M-Pesa', notificationsEnabled: false, emailNotificationsEnabled: true, following: ['9', '1'] },
+    { id: 'admin-valentim', name: 'Valentim', email: 'valentimarts08@gmail.com', password: '858662616', role: 'admin', status: 'active', avatarUrl: 'https://ui-avatars.com/api/?name=Valentim&background=random', whatsapp: '858662616', preferredPaymentMethod: 'M-Pesa', notificationsEnabled: true, emailNotificationsEnabled: true, following: [] },
+];
+
+export const mockChats: Chat[] = [
+    {
+        id: 'chat-1',
+        participants: ['reader-user-01', 'author-user-01'],
+        lastUpdated: '2024-07-20T14:30:00Z',
+        messages: [
+            { id: 'm1', senderId: 'reader-user-01', content: 'Olá Beto! Adorei "Contos da Savana". Quando sai o próximo?', timestamp: '2024-07-20T14:00:00Z' },
+            { id: 'm2', senderId: 'author-user-01', content: 'Olá Alice! Muito obrigado! Estou trabalhando na sequência agora, deve sair no final do ano.', timestamp: '2024-07-20T14:30:00Z' }
+        ]
+    }
+];
+
+export const mockNews: NewsArticle[] = [
+    {
+        id: 'news-1',
+        title: 'Feira do Livro de Maputo 2024',
+        description: 'A 10ª edição da Feira do Livro de Maputo foi um sucesso estrondoso, reunindo milhares de amantes da literatura no centro da cidade. Este ano, o evento contou com a presença de mais de 50 autores nacionais e internacionais, workshops de escrita criativa e sessões de autógrafos. O destaque foi para o lançamento de novas obras de autores moçambicanos emergentes, solidificando o crescimento da indústria literária no país. A feira também promoveu debates sobre a digitalização da leitura e o futuro das bibliotecas em Moçambique.',
+        imageUrl: 'https://picsum.photos/seed/feira/800/400',
+        hashtags: ['Maputo', 'Literatura', 'Eventos', 'Cultura'],
+        date: '2024-07-25T10:00:00Z',
+        authorId: 'admin-user-01',
+        comments: [
+            { id: 'c1', userId: 'reader-user-01', userName: 'Alice Leitora', content: 'Foi incrível! Adorei conhecer os novos autores.', date: '2024-07-25T14:00:00Z', userAvatar: 'https://i.pravatar.cc/150?u=reader-user-01' }
+        ]
+    },
+    {
+        id: 'news-2',
+        title: 'Novos Recursos no Leia Aqui',
+        description: 'Estamos empolgados em anunciar uma grande atualização na plataforma Leia Aqui! Agora, os leitores podem desfrutar de um modo noturno aprimorado, recomendações personalizadas baseadas em IA e a capacidade de seguir seus autores favoritos para receber notificações instantâneas sobre novos lançamentos. Além disso, melhoramos o processo de checkout com M-Pesa e E-Mola para tornar a compra de livros digitais ainda mais rápida e segura.',
+        imageUrl: 'https://picsum.photos/seed/update/800/400',
+        hashtags: ['Update', 'Tecnologia', 'LeiaAqui', 'App'],
+        date: '2024-07-20T14:30:00Z',
+        authorId: 'admin-user-01',
+        comments: []
+    },
+    {
+        id: 'news-3',
+        title: 'Entrevista com Mia Couto',
+        description: 'Em uma conversa exclusiva, o renomado escritor Mia Couto compartilha suas inspirações para seu próximo romance e discute o papel da literatura na preservação da memória cultural. Couto fala sobre como as tradições orais influenciam sua escrita e a importância de dar voz às histórias não contadas de Moçambique. Uma leitura obrigatória para todos os fãs e aspirantes a escritores.',
+        imageUrl: 'https://picsum.photos/seed/mia/800/400',
+        hashtags: ['Entrevista', 'MiaCouto', 'Inspiração'],
+        date: '2024-07-10T09:15:00Z',
+        authorId: 'admin-user-01',
+        comments: [
+             { id: 'c2', userId: 'author-user-01', userName: 'Beto Autor', content: 'Mia Couto é uma lenda viva. Excelente entrevista!', date: '2024-07-11T09:00:00Z', userAvatar: 'https://i.pravatar.cc/150?u=a042581f4e29026704d' }
+        ]
+    }
 ];
 
 export const bookCategories: string[] = [
@@ -112,6 +161,9 @@ const rawBooks: RawBook[] = [
     pages: 656,
     language: 'Português',
     isFeatured: true,
+    // Audiobook data
+    audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',
+    duration: '25h 30m',
     reviews: [
         {
             id: 'r1',

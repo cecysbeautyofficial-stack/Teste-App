@@ -79,7 +79,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
       </button>
 
       {isOpen && (
-        <div className="absolute top-full mt-2 w-[90vw] sm:w-96 max-w-[calc(100vw-2rem)] bg-white/80 dark:bg-black/80 backdrop-blur-2xl rounded-xl shadow-2xl ring-1 ring-black ring-opacity-5 z-50 border border-white/40 dark:border-white/10 overflow-hidden left-1/2 -translate-x-1/2 sm:left-auto sm:translate-x-0 sm:right-0 animate-fade-in-down">
+        <div className="fixed top-20 left-4 right-4 sm:absolute sm:top-full sm:mt-2 sm:left-auto sm:right-0 sm:w-96 sm:max-w-sm bg-white/80 dark:bg-black/80 backdrop-blur-2xl rounded-xl shadow-2xl ring-1 ring-black ring-opacity-5 z-[60] border border-white/40 dark:border-white/10 overflow-hidden animate-fade-in-down">
             <div className="px-4 py-3 border-b border-gray-200/50 dark:border-white/10 flex justify-between items-center bg-white/20 dark:bg-white/5">
                 <h3 className="text-sm font-bold text-gray-900 dark:text-white">{t('notifications')}</h3>
                 {unreadCount > 0 && (

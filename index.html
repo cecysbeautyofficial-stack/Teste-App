@@ -1,9 +1,8 @@
-
 <!DOCTYPE html>
 <html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="icon" href="https://lh3.googleusercontent.com/d/1s3RHuC44yY9qdIHB0Wki7tzGgoW6f90r" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Leia Aqui - Digital Book Marketplace</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -42,7 +41,11 @@
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
     "react/": "https://aistudiocdn.com/react@^19.2.0/",
     "@google/genai": "https://aistudiocdn.com/@google/genai@^1.29.1",
-    "pdfjs-dist": "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/+esm"
+    "pdfjs-dist": "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/+esm",
+    "@supabase/supabase-js": "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm",
+    "path": "https://aistudiocdn.com/path@^0.12.7",
+    "vite": "https://aistudiocdn.com/vite@^7.2.4",
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1"
   }
 }
 </script>
@@ -93,8 +96,9 @@
       box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
     }
   </style>
+<link rel="stylesheet" href="/index.css">
 </head>
-  <body class="bg-gray-100 text-gray-900 dark:bg-[#050505] dark:text-white transition-colors duration-300 font-sans bg-fixed selection:bg-brand-red selection:text-white">
+  <body class="bg-gray-100 text-gray-900 dark:bg-[#050505] dark:text-white transition-colors duration-300 font-sans bg-fixed selection:bg-brand-red selection:text-white overflow-x-hidden">
     <!-- Background Gradient Mesh -->
     <div class="fixed inset-0 z-[-1] bg-gradient-to-br from-blue-100 via-white to-purple-100 dark:from-[#0f0f0f] dark:via-[#1a1a2e] dark:to-[#050505]"></div>
     <div class="fixed inset-0 z-[-1] opacity-60 dark:opacity-30 bg-[radial-gradient(circle_at_top_right,_rgba(37,99,235,0.2),_transparent_50%)]"></div>

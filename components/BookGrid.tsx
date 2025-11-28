@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Book } from '../types';
 import BookCard from './BookCard';

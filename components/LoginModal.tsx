@@ -1,10 +1,10 @@
 
-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User } from '../types';
-import { XIcon, GoogleIcon } from './Icons';
+import { XIcon, EyeIcon, EyeOffIcon, GoogleIcon } from './Icons';
 import { useAppContext } from '../contexts/AppContext';
 import Logo from './Logo';
+import { supabase } from '../services/supabaseClient';
 
 interface LoginModalProps {
   onClose: () => void;
@@ -18,55 +18,102 @@ const LoginModal: React.FC<LoginModalProps> = ({ onClose, onLogin, onSwitchToReg
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const { t } = useAppContext();
+  const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
+  const { t, showToast } = useAppContext();
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  useEffect(() => {
+    const savedEmail = localStorage.getItem('rememberedEmail');
+    if (savedEmail) {
+      setEmail(savedEmail);
+      setRememberMe(true);
+    }
+  }, []);
+
+  const handleGoogleLogin = async () => {
+    setIsLoading(true);
     setError('');
-
-    const foundUser = users.find(
-      user => user.email.toLowerCase() === email.toLowerCase()
-    );
-
-    if (foundUser) {
-      // Check against stored password or default to '123456' for legacy mock users without a password field set
-      const isValidPassword = foundUser.password ? foundUser.password === password : password === '123456';
-      
-      if (isValidPassword) {
-        onLogin(foundUser);
-      } else {
-        setError(t('invalidCredentials'));
-      }
-    } else {
-      setError(t('invalidCredentials'));
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+          },
+          redirectTo: window.location.origin
+        },
+      });
+      if (error) throw error;
+      // O redirecionamento acontecerá automaticamente, então não precisamos setar loading false aqui
+    } catch (err: any) {
+      console.error("Google login error:", err);
+      setError(err.message || "Erro ao iniciar login com Google.");
+      setIsLoading(false);
     }
   };
 
-  const handleGoogleLogin = () => {
-    // Simulate Google Login
-    const googleUser: User = {
-        id: 'google-user-123',
-        name: 'Google User',
-        email: 'user@gmail.com',
-        role: 'reader',
-        status: 'active',
-        avatarUrl: 'https://lh3.googleusercontent.com/a/default-user=s96-c',
-        notificationsEnabled: true,
-        emailNotificationsEnabled: true,
-        preferredPaymentMethod: 'M-Pesa',
-        password: 'google-auth-user'
-    };
-    
-    // Check if user already exists in the passed `users` array to persist role/data if simulating persistence
-    const existingUser = users.find(u => u.email === googleUser.email);
-    
-    onLogin(existingUser || googleUser);
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setIsLoading(true);
+
+    const trimmedEmail = email.trim();
+
+    // Handle Remember Me logic
+    if (rememberMe) {
+      localStorage.setItem('rememberedEmail', trimmedEmail);
+    } else {
+      localStorage.removeItem('rememberedEmail');
+    }
+
+    try {
+      const { data, error: authError } = await supabase.auth.signInWithPassword({
+        email: trimmedEmail,
+        password,
+      });
+
+      if (authError) {
+        throw authError;
+      }
+
+      if (data.user) {
+        const userData: User = {
+            id: data.user.id,
+            email: data.user.email!,
+            name: data.user.user_metadata?.name || 'User',
+            role: data.user.user_metadata?.role || 'reader',
+            status: 'active',
+            avatarUrl: data.user.user_metadata?.avatarUrl,
+            whatsapp: data.user.user_metadata?.whatsapp,
+            notificationsEnabled: true,
+            emailNotificationsEnabled: true
+        };
+        onLogin(userData);
+        showToast(t('loginSuccess'), 'success');
+      }
+    } catch (err: any) {
+      // Fallback to check mock users for development/testing credentials if Supabase login fails
+      const mockUser = users.find(u => u.email.toLowerCase() === trimmedEmail.toLowerCase() && u.password === password);
+      if (mockUser) {
+           onLogin(mockUser);
+           showToast(t('loginSuccess'), 'success');
+           setIsLoading(false);
+           return;
+      }
+
+      console.error("Login error:", err);
+      setError(t('invalidCredentials'));
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-[60] p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-[1000] p-4" onClick={onClose}>
       <div className="bg-white dark:bg-[#212121] border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl w-full max-w-sm transform transition-all relative text-gray-900 dark:text-white" onClick={e => e.stopPropagation()}>
-        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-white">
+        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-white transition-colors">
           <XIcon className="h-6 w-6" />
         </button>
         <div className="p-6 sm:p-8">
@@ -74,19 +121,7 @@ const LoginModal: React.FC<LoginModalProps> = ({ onClose, onLogin, onSwitchToReg
               <Logo />
             </div>
             
-            <button 
-                onClick={handleGoogleLogin}
-                className="w-full flex items-center justify-center gap-3 bg-white dark:bg-gray-100 text-gray-800 font-semibold py-3 px-4 rounded-lg border border-gray-300 dark:border-gray-200 hover:bg-gray-50 transition-colors mb-6"
-            >
-                <GoogleIcon className="h-5 w-5" />
-                {t('continueWithGoogle')}
-            </button>
-
-            <div className="relative flex py-2 items-center mb-6">
-                <div className="flex-grow border-t border-gray-300 dark:border-gray-700"></div>
-                <span className="flex-shrink-0 mx-4 text-gray-400 dark:text-gray-500 text-sm">{t('or')}</span>
-                <div className="flex-grow border-t border-gray-300 dark:border-gray-700"></div>
-            </div>
+            <h2 className="text-2xl font-bold text-center mb-6">{t('loginToYourAccount')}</h2>
 
             <form onSubmit={handleSubmit} className="space-y-4">
                  <div>
@@ -101,23 +136,40 @@ const LoginModal: React.FC<LoginModalProps> = ({ onClose, onLogin, onSwitchToReg
                         required 
                     />
                 </div>
-                <div>
+                <div className="relative">
                     <label htmlFor="password"className="block text-sm font-medium text-gray-700 dark:text-gray-400">{t('password')}</label>
-                    <input 
-                        type="password"
-                        id="password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-gray-50 dark:bg-[#121212] text-gray-900 dark:text-white transition-colors"
-                        placeholder="••••••••"
-                        required
-                    />
+                    <div className="relative mt-1">
+                        <input 
+                            type={showPassword ? "text" : "password"}
+                            id="password"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            className="block w-full px-3 py-2 pr-10 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-gray-50 dark:bg-[#121212] text-gray-900 dark:text-white transition-colors"
+                            placeholder="••••••••"
+                            required
+                        />
+                        <button
+                            type="button"
+                            onClick={() => setShowPassword(!showPassword)}
+                            className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 focus:outline-none transition-transform duration-200 hover:scale-110 active:scale-95"
+                            title={showPassword ? "Ocultar senha" : "Mostrar senha"}
+                        >
+                            {showPassword ? <EyeOffIcon className="h-5 w-5" /> : <EyeIcon className="h-5 w-5" />}
+                        </button>
+                    </div>
                 </div>
                 
                 <div className="flex items-center justify-between !mt-2">
                     <div className="flex items-center">
-                        <input id="remember-me" name="remember-me" type="checkbox" className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 dark:border-gray-600 rounded bg-gray-100 dark:bg-gray-800" />
-                        <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-600 dark:text-gray-400">{t('rememberMe')}</label>
+                        <input 
+                            id="remember-me" 
+                            name="remember-me" 
+                            type="checkbox" 
+                            className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 dark:border-gray-600 rounded accent-indigo-600 cursor-pointer"
+                            checked={rememberMe}
+                            onChange={(e) => setRememberMe(e.target.checked)}
+                        />
+                        <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-600 dark:text-gray-400 cursor-pointer select-none">{t('rememberMe')}</label>
                     </div>
                     <div className="text-sm">
                         <button type="button" onClick={onForgotPassword} className="font-semibold text-brand-blue dark:text-indigo-400 hover:underline">{t('forgotPassword')}</button>
@@ -128,17 +180,40 @@ const LoginModal: React.FC<LoginModalProps> = ({ onClose, onLogin, onSwitchToReg
                     <p className="text-sm text-red-500 text-center">{error}</p>
                 )}
 
-                <button type="submit" className="w-full bg-brand-red hover:bg-red-700 text-white font-bold py-3 px-4 rounded-lg transition-colors !mt-6">
-                    {t('login')}
+                <button 
+                    type="submit" 
+                    disabled={isLoading}
+                    className="w-full bg-brand-red hover:bg-red-700 text-white font-bold py-3 px-4 rounded-lg transition-colors !mt-6 flex justify-center items-center"
+                >
+                    {isLoading ? (
+                        <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                    ) : t('login')}
                 </button>
             </form>
 
-            <div className="mt-4 p-3 bg-gray-50 dark:bg-[#121212] rounded-md text-xs text-gray-600 dark:text-gray-400 space-y-1 border border-gray-200 dark:border-gray-700">
-              <h4 className="font-bold mb-1 text-gray-900 dark:text-white">Contas de Teste:</h4>
-              <p><strong>Admin:</strong> <code className="bg-gray-200 dark:bg-gray-800 px-1 py-0.5 rounded">admin@leiaaqui.com</code></p>
-              <p><strong>Autor:</strong> <code className="bg-gray-200 dark:bg-gray-800 px-1 py-0.5 rounded">author@leiaaqui.com</code></p>
-              <p><strong>Leitor:</strong> <code className="bg-gray-200 dark:bg-gray-800 px-1 py-0.5 rounded">reader@leiaaqui.com</code></p>
-              <p className="mt-1"><strong>Senha para todos:</strong> <code className="bg-gray-200 dark:bg-gray-800 px-1 py-0.5 rounded">123456</code></p>
+            <div className="mt-6">
+                <div className="relative">
+                    <div className="absolute inset-0 flex items-center">
+                        <div className="w-full border-t border-gray-300 dark:border-gray-700"></div>
+                    </div>
+                    <div className="relative flex justify-center text-sm">
+                        <span className="px-2 bg-white dark:bg-[#212121] text-gray-500">
+                            {t('or')}
+                        </span>
+                    </div>
+                </div>
+
+                <button
+                    type="button"
+                    onClick={handleGoogleLogin}
+                    className="w-full mt-4 flex items-center justify-center gap-3 bg-white dark:bg-white/5 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-white hover:bg-gray-50 dark:hover:bg-white/10 transition-colors"
+                >
+                    <GoogleIcon className="h-5 w-5" />
+                    {t('continueWithGoogle')}
+                </button>
             </div>
             
             <p className="mt-6 text-center text-sm text-gray-600 dark:text-gray-400">

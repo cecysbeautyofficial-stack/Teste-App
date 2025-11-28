@@ -1,19 +1,26 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { User, Book, Purchase, PaymentMethod, Author, Notification } from '../../types';
+import { User, Book, Purchase, PaymentMethod, Author, Notification, Chat, NewsArticle } from '../../types';
 import { useAppContext } from '../../contexts/AppContext';
 import { 
     HomeIcon, UsersIcon, BookOpenIcon, CurrencyDollarIcon, 
     ChartBarIcon, PencilIcon, TrashIcon, PlusIcon, SearchIcon, 
     SparklesIcon, XIcon, UploadIcon, DocumentTextIcon, EyeIcon,
     StarIcon, AnnotationIcon, BellIcon, CheckCircleIcon, InformationCircleIcon, TagIcon,
-    ChartPieIcon, UserPlusIcon
+    ChartPieIcon, UserPlusIcon, GlobeIcon, ChatBubbleIcon, ClockIcon, WhatsAppIcon, NewspaperIcon, HeadphonesIcon,
+    DownloadIcon
 } from '../Icons';
 import { generateBookDescription, generateBookCover } from '../../services/geminiService';
 import Pagination from '../Pagination';
 import AccountSettingsModal from '../AccountSettingsModal';
 import BookStatsModal from './BookStatsModal';
 import SearchInput from '../SearchInput';
+import * as pdfjsLib from 'pdfjs-dist';
+
+const pdfjs = (pdfjsLib as any).default || pdfjsLib;
+if (pdfjs.GlobalWorkerOptions) {
+    pdfjs.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+}
 
 interface AdminDashboardProps {
   user: User;
@@ -28,7 +35,7 @@ interface AdminDashboardProps {
   onUpdatePaymentMethod: (methodId: string, updatedData: Partial<PaymentMethod>) => void;
   onDeletePaymentMethod: (methodId: string) => void;
   onAddPaymentMethod: (newMethodData: Omit<PaymentMethod, 'id'>) => void;
-  onAddBook: (newBookData: Omit<Book, 'id' | 'author' | 'coverUrl' | 'rating' | 'sales' | 'readers' | 'publishDate'> & { coverImage?: File; bookFile?: File }, authorOverride?: Author) => void;
+  onAddBook: (newBookData: Omit<Book, 'id' | 'author' | 'coverUrl' | 'rating' | 'sales' | 'readers' | 'publishDate'> & { coverImage?: File; bookFile?: File; audioFile?: File }, authorOverride?: Author) => void;
   categories: string[];
   authors: Author[];
   onAddCategory: (category: string) => void;
@@ -38,9 +45,36 @@ interface AdminDashboardProps {
   onMarkAsRead: (id: string) => void;
   onReadBook: (book: Book) => void;
   onSelectBook: (book: Book) => void;
+  chats: Chat[];
+  onOpenChat: (chatId: string) => void;
+  news: NewsArticle[];
+  onAddNews: (news: Omit<NewsArticle, 'id' | 'date' | 'authorId'> & { imageFile?: File }) => void;
+  onUpdateNews: (id: string, news: Partial<NewsArticle> & { imageFile?: File }) => void;
+  onDeleteNews: (id: string) => void;
+  onAddUser: (userData: Omit<User, 'id' | 'status'> & { status: 'active' | 'pending' | 'blocked' }) => void;
+  onAddNotification?: (notification: Omit<Notification, 'id' | 'date' | 'read'>) => void;
 }
 
-// Confirmation Modal
+const AnalyticsGraph: React.FC<{ data: number[], labels: string[] }> = ({ data, labels }) => {
+    const max = Math.max(...data, 1);
+    return (
+        <div className="w-full h-48 flex items-end justify-between gap-2 sm:gap-4 mt-4 px-2">
+            {data.map((value, idx) => (
+                <div key={idx} className="flex flex-col items-center flex-1 h-full justify-end group relative">
+                    <div className="absolute bottom-full mb-2 hidden group-hover:block bg-gray-900 dark:bg-white text-white dark:text-black text-xs font-bold px-2 py-1 rounded shadow-lg whitespace-nowrap z-10">
+                        {value.toLocaleString()}
+                    </div>
+                    <div 
+                        className="w-full max-w-[30px] sm:max-w-[50px] bg-indigo-500 hover:bg-indigo-400 transition-all duration-500 rounded-t-sm"
+                        style={{ height: `${(value / max) * 80}%` }} 
+                    ></div>
+                    <span className="text-[10px] text-gray-500 dark:text-gray-400 mt-2">{labels[idx]}</span>
+                </div>
+            ))}
+        </div>
+    )
+}
+
 const ConfirmationModal: React.FC<{
   isOpen: boolean;
   onClose: () => void;
@@ -77,15 +111,25 @@ const ConfirmationModal: React.FC<{
   );
 };
 
-const StatCard: React.FC<{ title: string; value: string; icon: React.ReactNode }> = ({ title, value, icon }) => (
-    <div className="bg-white dark:bg-[#212121] p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 flex items-center space-x-4">
-        <div className="bg-indigo-50 dark:bg-indigo-900/50 p-3 rounded-full border border-indigo-100 dark:border-indigo-800">
-            {icon}
+const StatCard: React.FC<{ title: string; value: string; icon: React.ReactNode; trend?: string; onClick?: () => void }> = ({ title, value, icon, trend, onClick }) => (
+    <div 
+        onClick={onClick}
+        className={`bg-white dark:bg-[#212121] p-6 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 flex items-center justify-between relative overflow-hidden group hover:border-indigo-500/50 transition-all ${onClick ? 'cursor-pointer hover:scale-[1.02]' : ''}`}
+    >
+        <div className="flex items-center space-x-4 z-10">
+            <div className="bg-indigo-50 dark:bg-indigo-900/30 p-3 rounded-lg border border-indigo-100 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400">
+                {icon}
+            </div>
+            <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">{title}</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{value}</p>
+            </div>
         </div>
-        <div>
-            <p className="text-sm font-medium text-gray-500 dark:text-gray-400">{title}</p>
-            <p className="text-2xl font-bold text-gray-900 dark:text-white">{value}</p>
-        </div>
+        {trend && (
+             <div className="text-xs font-bold text-green-500 bg-green-50 dark:bg-green-900/20 px-2 py-1 rounded-full">
+                 {trend}
+             </div>
+        )}
     </div>
 );
 
@@ -112,18 +156,21 @@ const FileInput: React.FC<{
     accept: string;
     error?: string | null;
     disabled?: boolean;
-}> = ({ title, formats, size, icon, file, onChange, accept, error, disabled }) => {
-    const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+    previewImage?: string; // Added prop for existing image
+}> = ({ title, formats, size, icon, file, onChange, accept, error, disabled, previewImage }) => {
+    const [previewUrl, setPreviewUrl] = useState<string | null>(previewImage || null);
 
     useEffect(() => {
         if (file && file.type.startsWith('image/')) {
             const url = URL.createObjectURL(file);
             setPreviewUrl(url);
             return () => URL.revokeObjectURL(url);
-        } else {
+        } else if (!file && previewImage) {
+            setPreviewUrl(previewImage);
+        } else if (!file && !previewImage) {
             setPreviewUrl(null);
         }
-    }, [file]);
+    }, [file, previewImage]);
 
     return (
         <div className={`relative border-2 border-dashed rounded-lg p-6 flex flex-col items-center justify-center text-center cursor-pointer transition-all overflow-hidden ${error ? 'border-red-500 bg-red-50 dark:bg-red-900/10' : 'border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
@@ -168,13 +215,19 @@ const UserDetailsModal: React.FC<{ user: User; onClose: () => void }> = ({ user,
                         <div>
                             <h3 className="text-lg font-bold">{user.name}</h3>
                             <p className="text-sm text-gray-500">{user.email}</p>
-                            <div className="flex items-center gap-2 mt-1">
+                            <div className="flex flex-wrap items-center gap-2 mt-2">
                                 <span className="px-2 py-0.5 bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-200 rounded text-xs font-semibold capitalize">
                                     {user.role}
                                 </span>
                                 <span className="px-2 py-0.5 bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200 rounded text-xs capitalize">
                                     {user.status}
                                 </span>
+                                {user.country && (
+                                    <span className="flex items-center gap-1 px-2 py-0.5 bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-200 rounded text-xs">
+                                        <GlobeIcon className="h-3 w-3" />
+                                        {user.country}
+                                    </span>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -230,57 +283,246 @@ const UserDetailsModal: React.FC<{ user: User; onClose: () => void }> = ({ user,
     );
 }
 
+const AdminAddUserModal: React.FC<{
+    onClose: () => void;
+    onAddUser: (data: Omit<User, 'id' | 'status'> & { status: 'active' | 'pending' | 'blocked' }) => void;
+}> = ({ onClose, onAddUser }) => {
+    const [name, setName] = useState('');
+    const [email, setEmail] = useState('');
+    const [role, setRole] = useState<'reader' | 'author' | 'admin'>('reader');
+    const [status, setStatus] = useState<'active' | 'pending' | 'blocked'>('active');
+    const [whatsapp, setWhatsapp] = useState('');
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        onAddUser({ name, email, role, status, whatsapp });
+        onClose();
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100] p-4" onClick={onClose}>
+            <div className="bg-white dark:bg-[#212121] border border-gray-200 dark:border-gray-700 rounded-2xl shadow-xl w-full max-w-lg transform transition-all relative text-gray-900 dark:text-white" onClick={e => e.stopPropagation()}>
+                <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+                    <h2 className="text-xl font-bold">Adicionar Usuário</h2>
+                    <button onClick={onClose} className="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"><XIcon className="h-5 w-5 text-gray-400" /></button>
+                </div>
+                <form onSubmit={handleSubmit} className="p-6 space-y-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1">Nome</label>
+                        <input type="text" className="w-full bg-gray-50 dark:bg-[#121212] border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2" value={name} onChange={e => setName(e.target.value)} required />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1">Email</label>
+                        <input type="email" className="w-full bg-gray-50 dark:bg-[#121212] border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2" value={email} onChange={e => setEmail(e.target.value)} required />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1">Função</label>
+                        <select className="w-full bg-gray-50 dark:bg-[#121212] border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2" value={role} onChange={e => setRole(e.target.value as any)}>
+                            <option value="reader">Leitor</option>
+                            <option value="author">Autor</option>
+                            <option value="admin">Admin</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1">Status</label>
+                        <select className="w-full bg-gray-50 dark:bg-[#121212] border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2" value={status} onChange={e => setStatus(e.target.value as any)}>
+                            <option value="active">Ativo</option>
+                            <option value="pending">Pendente</option>
+                            <option value="blocked">Bloqueado</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1">WhatsApp (Opcional)</label>
+                        <input type="tel" className="w-full bg-gray-50 dark:bg-[#121212] border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2" value={whatsapp} onChange={e => setWhatsapp(e.target.value)} />
+                    </div>
+                    <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+                        <button type="button" onClick={onClose} className="px-4 py-2 text-sm rounded hover:bg-gray-100 dark:hover:bg-gray-700">Cancelar</button>
+                        <button type="submit" className="bg-brand-blue text-white px-4 py-2 text-sm font-bold rounded hover:bg-blue-700">Salvar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+};
+
+const AdminAddNewsModal: React.FC<{
+    onClose: () => void;
+    onAddNews: (news: Omit<NewsArticle, 'id' | 'date' | 'authorId'> & { imageFile?: File }) => void;
+    onUpdateNews?: (id: string, news: Partial<NewsArticle> & { imageFile?: File }) => void;
+    news?: NewsArticle;
+}> = ({ onClose, onAddNews, onUpdateNews, news }) => {
+    const { t } = useAppContext();
+    const [title, setTitle] = useState(news?.title || '');
+    const [description, setDescription] = useState(news?.description || '');
+    const [hashtags, setHashtags] = useState(news?.hashtags.join(', ') || '');
+    const [imageFile, setImageFile] = useState<File | null>(null);
+
+    const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files[0]) {
+            setImageFile(e.target.files[0]);
+        }
+    };
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!title || !description) {
+            alert("Preencha título e descrição.");
+            return;
+        }
+
+        const tags = hashtags.split(',').map(tag => tag.trim().replace(/^#/, '')).filter(tag => tag.length > 0);
+
+        if (news && onUpdateNews) {
+            onUpdateNews(news.id, {
+                title,
+                description,
+                hashtags: tags,
+                imageFile: imageFile || undefined
+            });
+        } else {
+            if (!imageFile) {
+                alert("Adicione uma imagem.");
+                return;
+            }
+            onAddNews({
+                title,
+                description,
+                hashtags: tags,
+                imageUrl: '', 
+                imageFile
+            });
+        }
+        onClose();
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100] p-4" onClick={onClose}>
+            <div className="bg-white dark:bg-[#212121] border border-gray-200 dark:border-gray-700 rounded-2xl shadow-xl w-full max-w-xl transform transition-all relative text-gray-900 dark:text-white" onClick={e => e.stopPropagation()}>
+                <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+                    <h2 className="text-xl font-bold">{news ? 'Editar Notícia' : 'Adicionar Notícia'}</h2>
+                    <button onClick={onClose} className="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"><XIcon className="h-5 w-5 text-gray-400" /></button>
+                </div>
+                <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1">Título da Notícia</label>
+                        <input type="text" className="w-full bg-gray-50 dark:bg-[#121212] border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2" value={title} onChange={e => setTitle(e.target.value)} required />
+                    </div>
+                    
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1">Descrição</label>
+                        <textarea rows={5} className="w-full bg-gray-50 dark:bg-[#121212] border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2" value={description} onChange={e => setDescription(e.target.value)} required />
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1">Imagem de Destaque</label>
+                        <FileInput 
+                            title="Upload Imagem" 
+                            formats="JPEG, PNG" 
+                            size="5MB" 
+                            icon={<UploadIcon className="h-8 w-8"/>} 
+                            file={imageFile} 
+                            onChange={handleImageChange} 
+                            accept="image/*" 
+                            previewImage={news?.imageUrl}
+                        />
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1">Hashtags (separadas por vírgula)</label>
+                        <input type="text" placeholder="ex: novidade, tecnologia, update" className="w-full bg-gray-50 dark:bg-[#121212] border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2" value={hashtags} onChange={e => setHashtags(e.target.value)} />
+                    </div>
+
+                    <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+                        <button type="button" onClick={onClose} className="px-4 py-2 text-sm rounded hover:bg-gray-100 dark:hover:bg-gray-700">{t('cancel')}</button>
+                        <button type="submit" className="bg-brand-red text-white px-4 py-2 text-sm font-bold rounded hover:bg-red-600">{news ? 'Salvar Alterações' : 'Publicar Notícia'}</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+}
+
 const AdminAddBookModal: React.FC<{ 
     onClose: () => void; 
-    onAddBook: (data: Omit<Book, 'id' | 'author' | 'coverUrl' | 'rating' | 'sales' | 'readers' | 'publishDate'> & { coverImage?: File; bookFile?: File }, authorOverride?: Author) => void; 
+    onAddBook: (data: Omit<Book, 'id' | 'author' | 'coverUrl' | 'rating' | 'sales' | 'readers' | 'publishDate'> & { coverImage?: File; bookFile?: File; audioFile?: File }, authorOverride?: Author) => void; 
+    onUpdateBook?: (bookId: string, updatedData: Partial<Book>) => void;
     categories: string[];
     authors: Author[];
-}> = ({ onClose, onAddBook, categories, authors }) => {
+    book?: Book;
+}> = ({ onClose, onAddBook, onUpdateBook, categories, authors, book }) => {
     const { t } = useAppContext();
-    const [title, setTitle] = useState('');
-    const [description, setDescription] = useState('');
-    const [category, setCategory] = useState('');
-    const [price, setPrice] = useState('');
-    const [pages, setPages] = useState('');
-    const [language, setLanguage] = useState('Português');
-    const [selectedAuthorId, setSelectedAuthorId] = useState('');
+    const [bookType, setBookType] = useState<'pdf' | 'audio'>((book?.audioUrl) ? 'audio' : 'pdf');
+    const [title, setTitle] = useState(book?.title || '');
+    const [description, setDescription] = useState(book?.description || '');
+    const [category, setCategory] = useState(book?.category || '');
+    const [price, setPrice] = useState(book?.price ? String(book.price) : '');
+    const [pages, setPages] = useState(book?.pages || 0);
+    const [duration, setDuration] = useState(book?.duration || '');
+    const [language, setLanguage] = useState(book?.language || 'Português');
+    const [isbn, setIsbn] = useState(book?.isbn || '');
     const [coverImage, setCoverImage] = useState<File | null>(null);
     const [bookFile, setBookFile] = useState<File | null>(null);
-    const [pdfError, setPdfError] = useState<string | null>(null);
+    const [audioFile, setAudioFile] = useState<File | null>(null);
+    const [selectedAuthorId, setSelectedAuthorId] = useState(book?.author.id || '');
+    const [fileError, setFileError] = useState<string | null>(null);
     const [isGeneratingDesc, setIsGeneratingDesc] = useState(false);
     const [isGeneratingCover, setIsGeneratingCover] = useState(false);
-    
-    // Sales
-    const [isOnSale, setIsOnSale] = useState(false);
-    const [salePrice, setSalePrice] = useState('');
-    const [saleStartDate, setSaleStartDate] = useState('');
-    const [saleEndDate, setSaleEndDate] = useState('');
 
     const handleCoverImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) setCoverImage(e.target.files[0]);
     };
 
-    const handleBookFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const formatDuration = (seconds: number) => {
+        const h = Math.floor(seconds / 3600);
+        const m = Math.floor((seconds % 3600) / 60);
+        if (h > 0) return `${h}h ${m}m`;
+        return `${m}m`;
+    };
+
+    const handleBookFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        if (file) {
+        if (!file) return;
+
+        if (bookType === 'pdf') {
             if (file.type !== 'application/pdf') {
-                setPdfError('O ficheiro deve ser um PDF.');
+                setFileError('O ficheiro deve ser um PDF.');
                 setBookFile(null);
-            } else {
-                setPdfError(null);
-                setBookFile(file);
+                return;
             }
+            setFileError(null);
+            setBookFile(file);
+            
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
+                setPages(pdf.numPages);
+            } catch (error) {
+                console.error("Error counting PDF pages", error);
+                setPages(0);
+            }
+
+        } else {
+            const validTypes = ['audio/mpeg', 'audio/wav', 'audio/x-m4a', 'audio/mp4'];
+            if (!validTypes.includes(file.type) && !file.name.endsWith('.mp3')) {
+                 setFileError('Formato de áudio inválido (MP3, WAV, M4A).');
+                 setAudioFile(null);
+                 return;
+            }
+            setFileError(null);
+            setAudioFile(file);
+
+            const audio = new Audio(URL.createObjectURL(file));
+            audio.onloadedmetadata = () => {
+                setDuration(formatDuration(audio.duration));
+            };
         }
     };
 
     const handleGenerateDescription = async () => {
-        if (!title || !category || !selectedAuthorId) {
-            alert("Preencha título, categoria e autor.");
-            return;
-        }
-        const authorName = authors.find(a => a.id === selectedAuthorId)?.name || '';
+        if (!title || !category || !selectedAuthorId) return;
         setIsGeneratingDesc(true);
-        const generatedDesc = await generateBookDescription(title, authorName, category);
+        const author = authors.find(a => a.id === selectedAuthorId);
+        const generatedDesc = await generateBookDescription(title, author?.name || '', category);
         setDescription(generatedDesc);
         setIsGeneratingDesc(false);
     };
@@ -290,8 +532,9 @@ const AdminAddBookModal: React.FC<{
             alert("Preencha título, categoria e autor para gerar a capa.");
             return;
         }
-        const authorName = authors.find(a => a.id === selectedAuthorId)?.name || '';
         setIsGeneratingCover(true);
+        const author = authors.find(a => a.id === selectedAuthorId);
+        const authorName = author?.name || '';
         const base64Image = await generateBookCover(title, authorName, category, description);
         if (base64Image) {
             const file = base64ToFile(base64Image, `cover_${title.replace(/\s+/g, '_')}_ai.png`);
@@ -304,24 +547,34 @@ const AdminAddBookModal: React.FC<{
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        if (!bookFile || !coverImage || !title || !category || !price || !pages || !language || !selectedAuthorId) return;
+        if (!book && (!coverImage || !title || !category || !price || !selectedAuthorId)) return;
+        if (!book && bookType === 'pdf' && !bookFile) return;
+        if (!book && bookType === 'audio' && !audioFile) return;
 
-        const newBookData = {
-            title, description, category,
-            price: parseFloat(price),
-            pages: parseInt(pages),
-            language,
-            currency: 'MZN' as const,
-            coverImage,
-            bookFile: bookFile || undefined,
-            salePrice: isOnSale && salePrice ? parseFloat(salePrice) : undefined,
-            saleStartDate: isOnSale && saleStartDate ? saleStartDate : undefined,
-            saleEndDate: isOnSale && saleEndDate ? saleEndDate : undefined,
-        };
-
-        const authorOverride = authors.find(a => a.id === selectedAuthorId);
-        
-        onAddBook(newBookData, authorOverride);
+        if (book && onUpdateBook) {
+            onUpdateBook(book.id, {
+                title, description, category,
+                price: parseFloat(price),
+                pages: bookType === 'pdf' ? pages : undefined,
+                duration: bookType === 'audio' ? duration : undefined,
+                language,
+                isbn: isbn || undefined
+            });
+        } else {
+            const author = authors.find(a => a.id === selectedAuthorId);
+            onAddBook({
+                title, description, category,
+                price: parseFloat(price),
+                pages: bookType === 'pdf' ? pages : undefined,
+                duration: bookType === 'audio' ? duration : undefined,
+                language,
+                isbn: isbn || undefined,
+                currency: 'MZN',
+                coverImage,
+                bookFile: bookType === 'pdf' ? (bookFile || undefined) : undefined,
+                audioFile: bookType === 'audio' ? (audioFile || undefined) : undefined,
+            }, author);
+        }
         onClose();
     };
 
@@ -329,89 +582,43 @@ const AdminAddBookModal: React.FC<{
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100] p-4" onClick={onClose}>
             <div className="bg-white dark:bg-[#212121] border border-gray-200 dark:border-gray-700 rounded-2xl shadow-xl w-full max-w-2xl transform transition-all relative text-gray-900 dark:text-white" onClick={e => e.stopPropagation()}>
                 <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
-                    <h2 className="text-xl font-bold">{t('addBook')} (Admin)</h2>
+                    <h2 className="text-xl font-bold">{book ? 'Editar Livro' : t('addBook')}</h2>
                     <button onClick={onClose} className="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"><XIcon className="h-5 w-5 text-gray-400" /></button>
                 </div>
-                <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label className="text-xs font-medium text-gray-500 block mb-1">{t('bookTitle')}</label>
-                             <input type="text" placeholder={t('bookTitle')} className="w-full bg-gray-50 dark:bg-[#121212] border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2" value={title} onChange={e => setTitle(e.target.value)} required />
-                        </div>
-                        <div>
-                            <label className="text-xs font-medium text-gray-500 block mb-1">{t('author')}</label>
-                            <select className="w-full bg-gray-50 dark:bg-[#121212] border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2" value={selectedAuthorId} onChange={e => setSelectedAuthorId(e.target.value)} required>
-                                <option value="">{t('selectAuthor')}...</option>
-                                {authors.map(author => <option key={author.id} value={author.id}>{author.name}</option>)}
-                            </select>
-                        </div>
-                    </div>
+                <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[70vh] overflow-y-auto custom-scrollbar">
+                    <input type="text" placeholder={t('bookTitle')} className="w-full bg-gray-50 dark:bg-[#121212] border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2" value={title} onChange={e => setTitle(e.target.value)} required />
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label className="text-xs font-medium text-gray-500 block mb-1">{t('category')}</label>
-                            <select className="w-full bg-gray-50 dark:bg-[#121212] border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2" value={category} onChange={e => setCategory(e.target.value)} required>
-                                <option value="">{t('category')}...</option>
-                                {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label className="text-xs font-medium text-gray-500 block mb-1">{t('priceMZN')}</label>
-                            <input type="number" placeholder="1200.00" className="w-full bg-gray-50 dark:bg-[#121212] border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2" value={price} onChange={e => setPrice(e.target.value)} required />
-                        </div>
+                        <select className="w-full bg-gray-50 dark:bg-[#121212] border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2" value={category} onChange={e => setCategory(e.target.value)} required>
+                            <option value="">{t('category')}...</option>
+                            {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                        </select>
+                        <select className="w-full bg-gray-50 dark:bg-[#121212] border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2" value={selectedAuthorId} onChange={e => setSelectedAuthorId(e.target.value)} required disabled={!!book}>
+                            <option value="">{t('author')}...</option>
+                            {authors.map(author => <option key={author.id} value={author.id}>{author.name}</option>)}
+                        </select>
                     </div>
 
                     <div className="relative">
-                         <button type="button" onClick={handleGenerateDescription} disabled={isGeneratingDesc} className="absolute right-2 top-2 text-xs text-indigo-500 flex items-center gap-1">
+                         <button type="button" onClick={handleGenerateDescription} disabled={isGeneratingDesc} className="absolute right-2 top-2 text-xs text-indigo-500 flex items-center gap-1 bg-indigo-50 dark:bg-indigo-900/30 px-2 py-1 rounded-full">
                             <SparklesIcon className="h-3 w-3" /> {isGeneratingDesc ? t('generating') : t('generateWithAI')}
                          </button>
                         <textarea rows={3} placeholder={t('description')} className="w-full bg-gray-50 dark:bg-[#121212] border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2" value={description} onChange={e => setDescription(e.target.value)} required />
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
-                        <input type="number" placeholder={t('numPages')} className="w-full bg-gray-50 dark:bg-[#121212] border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2" value={pages} onChange={e => setPages(e.target.value)} required />
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                        <input type="number" placeholder={t('priceMZN')} className="w-full bg-gray-50 dark:bg-[#121212] border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2" value={price} onChange={e => setPrice(e.target.value)} required />
                          <select className="w-full bg-gray-50 dark:bg-[#121212] border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2" value={language} onChange={e => setLanguage(e.target.value)}>
                             <option value="Português">Português</option>
                             <option value="English">English</option>
                         </select>
-                    </div>
-
-                    <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-                         <div className="flex items-center justify-between mb-3">
-                            <h3 className="font-semibold flex items-center gap-2 text-gray-900 dark:text-white">
-                                <TagIcon className="h-4 w-4" />
-                                {t('saleSettings')}
-                            </h3>
-                            <div className="flex items-center">
-                                 <input 
-                                    type="checkbox" 
-                                    id="isOnSale" 
-                                    checked={isOnSale} 
-                                    onChange={(e) => setIsOnSale(e.target.checked)}
-                                    className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
-                                />
-                                <label htmlFor="isOnSale" className="ml-2 block text-sm text-gray-700 dark:text-gray-300 cursor-pointer select-none">
-                                     {t('putOnSale')}
-                                </label>
-                            </div>
-                         </div>
-                         
-                         {isOnSale && (
-                             <div className="grid grid-cols-3 gap-3 animate-fade-in-down">
-                                <div>
-                                    <label className="text-xs text-gray-500 mb-1 block">{t('salePrice')}</label>
-                                    <input type="number" className="w-full bg-gray-50 dark:bg-[#121212] border border-gray-300 dark:border-gray-700 rounded-lg px-2 py-1.5 text-sm text-gray-900 dark:text-white" value={salePrice} onChange={e => setSalePrice(e.target.value)} required={isOnSale} />
-                                </div>
-                                <div>
-                                    <label className="text-xs text-gray-500 mb-1 block">{t('saleStartDate')}</label>
-                                    <input type="date" className="w-full bg-gray-50 dark:bg-[#121212] border border-gray-300 dark:border-gray-700 rounded-lg px-2 py-1.5 text-sm text-gray-900 dark:text-white" value={saleStartDate} onChange={e => setSaleStartDate(e.target.value)} required={isOnSale} />
-                                </div>
-                                <div>
-                                    <label className="text-xs text-gray-500 mb-1 block">{t('saleEndDate')}</label>
-                                    <input type="date" className="w-full bg-gray-50 dark:bg-[#121212] border border-gray-300 dark:border-gray-700 rounded-lg px-2 py-1.5 text-sm text-gray-900 dark:text-white" value={saleEndDate} onChange={e => setSaleEndDate(e.target.value)} required={isOnSale} />
-                                </div>
-                             </div>
-                         )}
+                        <input 
+                            type="text" 
+                            placeholder="ISBN (Opcional)" 
+                            className="w-full bg-gray-50 dark:bg-[#121212] border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2" 
+                            value={isbn} 
+                            onChange={e => setIsbn(e.target.value)} 
+                        />
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -422,7 +629,7 @@ const AdminAddBookModal: React.FC<{
                                     type="button" 
                                     onClick={handleGenerateCover}
                                     disabled={isGeneratingCover}
-                                    className="text-xs text-indigo-500 hover:text-indigo-600 flex items-center gap-1 disabled:opacity-50"
+                                    className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 flex items-center gap-1 disabled:opacity-50 bg-indigo-50 dark:bg-indigo-900/30 px-2 py-1 rounded-full transition-colors"
                                 >
                                     {isGeneratingCover ? (
                                         <svg className="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -435,221 +642,54 @@ const AdminAddBookModal: React.FC<{
                                     <span>{t('generateWithAI')}</span>
                                 </button>
                             </div>
-                            <FileInput 
-                                title={t('bookCover')} 
-                                formats="JPEG, PNG" 
-                                size="5MB" 
-                                icon={<UploadIcon className="h-8 w-8"/>} 
-                                file={coverImage} 
-                                onChange={handleCoverImageChange} 
-                                accept="image/*"
-                            />
+                            <FileInput title={t('bookCover')} formats="JPEG, PNG" size="5MB" icon={<UploadIcon className="h-8 w-8"/>} file={coverImage} onChange={handleCoverImageChange} accept="image/*" previewImage={book?.coverUrl} />
                         </div>
                         <div className="flex flex-col">
-                            <span className="text-xs font-medium text-gray-500 mb-2">{t('bookFile')}</span>
-                            <FileInput 
-                                title={t('bookFile')} 
-                                formats="PDF" 
-                                size="50MB" 
-                                icon={<DocumentTextIcon className="h-8 w-8"/>} 
-                                file={bookFile} 
-                                onChange={handleBookFileChange} 
-                                accept="application/pdf"
-                                error={pdfError}
-                            />
-                            <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-2 text-center">
-                                {t('flipbookHint')}
-                            </p>
+                            {!book && (
+                                <div className="flex items-center justify-between mb-2">
+                                    <div className="flex bg-gray-100 dark:bg-gray-800 rounded-full p-0.5">
+                                        <button
+                                            type="button"
+                                            onClick={() => { setBookType('pdf'); setAudioFile(null); }}
+                                            className={`px-3 py-1 text-xs font-bold rounded-full transition-colors ${bookType === 'pdf' ? 'bg-white dark:bg-gray-600 shadow text-gray-900 dark:text-white' : 'text-gray-500 hover:text-gray-900'}`}
+                                        >
+                                            E-Book (PDF)
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => { setBookType('audio'); setBookFile(null); }}
+                                            className={`px-3 py-1 text-xs font-bold rounded-full transition-colors ${bookType === 'audio' ? 'bg-white dark:bg-gray-600 shadow text-gray-900 dark:text-white' : 'text-gray-500 hover:text-gray-900'}`}
+                                        >
+                                            Audiobook
+                                        </button>
+                                    </div>
+                                    {bookType === 'pdf' && pages > 0 && <span className="text-xs text-green-500 font-medium flex items-center gap-1"><DocumentTextIcon className="h-3 w-3"/> {pages} págs</span>}
+                                    {bookType === 'audio' && duration && <span className="text-xs text-green-500 font-medium flex items-center gap-1"><ClockIcon className="h-3 w-3"/> {duration}</span>}
+                                </div>
+                            )}
+                            {!book && (
+                                <FileInput 
+                                    title={bookType === 'pdf' ? t('bookFile') : 'Ficheiro de Áudio'} 
+                                    formats={bookType === 'pdf' ? "PDF" : "MP3, WAV, M4A"} 
+                                    size="50MB" 
+                                    icon={bookType === 'pdf' ? <DocumentTextIcon className="h-8 w-8"/> : <HeadphonesIcon className="h-8 w-8"/>} 
+                                    file={bookType === 'pdf' ? bookFile : audioFile} 
+                                    onChange={handleBookFileChange} 
+                                    accept={bookType === 'pdf' ? "application/pdf" : "audio/*"}
+                                    error={fileError}
+                                />
+                            )}
+                            {book && (
+                                <div className="bg-gray-100 dark:bg-gray-800 p-4 rounded-lg text-center mt-4">
+                                    <p className="text-sm text-gray-500">Arquivos não podem ser alterados na edição rápida.</p>
+                                </div>
+                            )}
                         </div>
                     </div>
 
                     <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
                         <button type="button" onClick={onClose} className="px-4 py-2 text-sm rounded hover:bg-gray-100 dark:hover:bg-gray-700">{t('cancel')}</button>
-                        <button type="submit" className="bg-brand-red text-white px-4 py-2 text-sm font-bold rounded hover:bg-red-600">{t('addBook')}</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    );
-};
-
-const EditBookModal: React.FC<{ book: Book; onClose: () => void; onSave: (bookId: string, data: Partial<Book>) => void }> = ({ book, onClose, onSave }) => {
-    const { t } = useAppContext();
-    const [title, setTitle] = useState(book.title);
-    const [description, setDescription] = useState(book.description);
-    const [category, setCategory] = useState(book.category);
-    const [price, setPrice] = useState(book.price.toString());
-    const [pages, setPages] = useState(book.pages?.toString() || '');
-    const [language, setLanguage] = useState(book.language || 'Português');
-    const [status, setStatus] = useState(book.status || 'Draft');
-    const [isFeatured, setIsFeatured] = useState(book.isFeatured || false);
-    const [isGenerating, setIsGenerating] = useState(false);
-    
-    // Sale fields
-    const [isOnSale, setIsOnSale] = useState(!!book.salePrice);
-    const [salePrice, setSalePrice] = useState(book.salePrice?.toString() || '');
-    const [saleStartDate, setSaleStartDate] = useState(book.saleStartDate || '');
-    const [saleEndDate, setSaleEndDate] = useState(book.saleEndDate || '');
-
-    const handleGenerateDescription = async () => {
-        if (!title || !category) {
-            alert("Por favor, garanta que o título e a categoria estão definidos.");
-            return;
-        }
-        setIsGenerating(true);
-        const generatedDesc = await generateBookDescription(title, book.author.name, category);
-        setDescription(generatedDesc);
-        setIsGenerating(false);
-    };
-
-    const handleSave = (e: React.FormEvent) => {
-        e.preventDefault();
-        const updatedData: Partial<Book> = {
-            title, description, category, 
-            price: parseFloat(price), 
-            pages: parseInt(pages), 
-            language, 
-            status: status as any,
-            isFeatured,
-            salePrice: isOnSale && salePrice ? parseFloat(salePrice) : undefined,
-            saleStartDate: isOnSale && saleStartDate ? saleStartDate : undefined,
-            saleEndDate: isOnSale && saleEndDate ? saleEndDate : undefined,
-        };
-        onSave(book.id, updatedData);
-        onClose();
-    };
-
-    return (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100] p-4" onClick={onClose}>
-            <div className="bg-white dark:bg-[#212121] border border-gray-200 dark:border-gray-700 rounded-2xl shadow-xl w-full max-w-2xl transform transition-all relative text-gray-900 dark:text-white" onClick={e => e.stopPropagation()}>
-                <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
-                    <div>
-                        <h2 className="text-xl font-bold">{t('editBook')}</h2>
-                        <p className="text-sm text-gray-500 dark:text-gray-400">{t('updatePublicationDetails')}</p>
-                    </div>
-                    <button onClick={onClose} className="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700">
-                        <XIcon className="h-5 w-5 text-gray-400" />
-                    </button>
-                </div>
-                <form onSubmit={handleSave}>
-                    <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
-                         <div>
-                            <label htmlFor="edit-title" className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('bookTitle')}</label>
-                            <input type="text" id="edit-title" className="w-full bg-gray-50 dark:bg-[#121212] border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-900 dark:text-white" value={title} onChange={e => setTitle(e.target.value)} required />
-                        </div>
-                        <div>
-                           <div className="flex justify-between items-center mb-1">
-                                <label htmlFor="edit-description" className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('description')}</label>
-                                <button
-                                    type="button"
-                                    onClick={handleGenerateDescription}
-                                    disabled={isGenerating || !title || !category}
-                                    className="flex items-center gap-1 text-xs font-semibold text-indigo-500 dark:text-indigo-400 hover:text-indigo-400 dark:hover:text-indigo-300 disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                    {isGenerating ? (
-                                        <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                        </svg>
-                                    ) : (
-                                        <SparklesIcon className="h-4 w-4" />
-                                    )}
-                                    <span>{isGenerating ? t('generating') : t('regenerateWithAI')}</span>
-                                </button>
-                            </div>
-                            <textarea id="edit-description" rows={3} className="w-full bg-gray-50 dark:bg-[#121212] border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-900 dark:text-white" value={description} onChange={e => setDescription(e.target.value)}></textarea>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label htmlFor="edit-category" className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('category')}</label>
-                                <select id="edit-category" className="w-full mt-1 bg-gray-50 dark:bg-[#121212] border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 appearance-none text-gray-900 dark:text-white" value={category} onChange={e => setCategory(e.target.value)} required >
-                                    <option value={category}>{category}</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label htmlFor="edit-price" className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('priceMZN')}</label>
-                                <input type="number" id="edit-price" className="w-full mt-1 bg-gray-50 dark:bg-[#121212] border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-900 dark:text-white" value={price} onChange={e => setPrice(e.target.value)} required />
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('numPages')}</label>
-                                <input type="number" className="w-full mt-1 bg-gray-50 dark:bg-[#121212] border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2" value={pages} onChange={e => setPages(e.target.value)} required />
-                            </div>
-                            <div>
-                                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('language')}</label>
-                                <select className="w-full mt-1 bg-gray-50 dark:bg-[#121212] border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2" value={language} onChange={e => setLanguage(e.target.value)}>
-                                    <option value="Português">Português</option>
-                                    <option value="English">English</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-                             <div className="flex items-center justify-between mb-3">
-                                <h3 className="font-semibold flex items-center gap-2 text-gray-900 dark:text-white">
-                                    <TagIcon className="h-4 w-4" />
-                                    {t('saleSettings')}
-                                </h3>
-                                <div className="flex items-center">
-                                     <input 
-                                        type="checkbox" 
-                                        id="isOnSale" 
-                                        checked={isOnSale} 
-                                        onChange={(e) => setIsOnSale(e.target.checked)}
-                                        className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
-                                    />
-                                    <label htmlFor="isOnSale" className="ml-2 block text-sm text-gray-700 dark:text-gray-300 cursor-pointer select-none">
-                                         {t('putOnSale')}
-                                    </label>
-                                </div>
-                             </div>
-                             
-                             {isOnSale && (
-                                 <div className="grid grid-cols-3 gap-3 animate-fade-in-down">
-                                    <div>
-                                        <label className="text-xs text-gray-500 mb-1 block">{t('salePrice')}</label>
-                                        <input type="number" className="w-full bg-gray-50 dark:bg-[#121212] border border-gray-300 dark:border-gray-700 rounded-lg px-2 py-1.5 text-sm text-gray-900 dark:text-white" value={salePrice} onChange={e => setSalePrice(e.target.value)} required={isOnSale} />
-                                    </div>
-                                    <div>
-                                        <label className="text-xs text-gray-500 mb-1 block">{t('saleStartDate')}</label>
-                                        <input type="date" className="w-full bg-gray-50 dark:bg-[#121212] border border-gray-300 dark:border-gray-700 rounded-lg px-2 py-1.5 text-sm text-gray-900 dark:text-white" value={saleStartDate} onChange={e => setSaleStartDate(e.target.value)} required={isOnSale} />
-                                    </div>
-                                    <div>
-                                        <label className="text-xs text-gray-500 mb-1 block">{t('saleEndDate')}</label>
-                                        <input type="date" className="w-full bg-gray-50 dark:bg-[#121212] border border-gray-300 dark:border-gray-700 rounded-lg px-2 py-1.5 text-sm text-gray-900 dark:text-white" value={saleEndDate} onChange={e => setSaleEndDate(e.target.value)} required={isOnSale} />
-                                    </div>
-                                 </div>
-                             )}
-                        </div>
-
-                        <div className="flex items-center gap-4 border-t border-gray-200 dark:border-gray-700 pt-4">
-                            <div className="flex-1">
-                                <label htmlFor="edit-status" className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('status')}</label>
-                                <select id="edit-status" className="w-full mt-1 bg-gray-50 dark:bg-[#121212] border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 appearance-none text-gray-900 dark:text-white" value={status} onChange={e => setStatus(e.target.value as any)} required >
-                                    <option value="Published">{t('published')}</option>
-                                    <option value="Draft">{t('draft')}</option>
-                                    <option value="Pending Approval">{t('pendingApproval')}</option>
-                                </select>
-                            </div>
-                            <div className="flex items-center pt-6">
-                                <input 
-                                    type="checkbox" 
-                                    id="isFeatured" 
-                                    checked={isFeatured} 
-                                    onChange={(e) => setIsFeatured(e.target.checked)}
-                                    className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
-                                />
-                                <label htmlFor="isFeatured" className="ml-2 block text-sm text-gray-900 dark:text-white">
-                                    {t('highlightBook')}
-                                </label>
-                            </div>
-                        </div>
-                    </div>
-                    <div className="p-6 bg-gray-50 dark:bg-[#2a2a2a] border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3 rounded-b-2xl">
-                        <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-semibold rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-gray-700 dark:text-gray-300">{t('cancel')}</button>
-                        <button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 text-sm font-semibold rounded-lg transition-colors">{t('saveChanges')}</button>
+                        <button type="submit" className="bg-brand-red text-white px-4 py-2 text-sm font-bold rounded hover:bg-red-600">{book ? t('saveChanges') : t('addBook')}</button>
                     </div>
                 </form>
             </div>
@@ -662,11 +702,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     onUpdateBook, onDeleteBook, paymentMethods, onUpdatePaymentMethod, 
     onDeletePaymentMethod, onAddPaymentMethod, onAddBook, categories,
     authors, onAddCategory, onAddAuthor,
-    activeTab: initialTab, notifications, onMarkAsRead, onReadBook, onSelectBook
+    activeTab: initialTab, notifications, onMarkAsRead, onReadBook, onSelectBook, chats, onOpenChat,
+    news, onAddNews, onUpdateNews, onDeleteNews, onAddUser, onAddNotification
 }) => {
     const { t, formatPrice, language } = useAppContext();
-    const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'pending_authors' | 'books' | 'financials' | 'notifications'>(initialTab as any);
-    const [confirmDelete, setConfirmDelete] = useState<{ type: 'user' | 'book' | 'paymentMethod'; id: string; name: string } | null>(null);
+    const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'pending_authors' | 'books' | 'financials' | 'notifications' | 'chats' | 'news'>(initialTab as any);
+    const [confirmDelete, setConfirmDelete] = useState<{ type: 'user' | 'book' | 'paymentMethod' | 'news'; id: string; name: string } | null>(null);
 
     useEffect(() => {
         if (initialTab) setActiveTab(initialTab as any);
@@ -680,14 +721,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     // Search States
     const [userSearchQuery, setUserSearchQuery] = useState('');
     const [bookSearchQuery, setBookSearchQuery] = useState('');
-    const [financialSearchQuery, setFinancialSearchQuery] = useState('');
 
     // Modal States
     const [editingUser, setEditingUser] = useState<User | null>(null);
-    const [editingBook, setEditingBook] = useState<Book | null>(null);
     const [viewingStatsFor, setViewingStatsFor] = useState<Book | null>(null);
     const [isAddingBook, setIsAddingBook] = useState(false);
+    const [isAddingNews, setIsAddingNews] = useState(false);
+    const [isAddingUser, setIsAddingUser] = useState(false);
     const [viewingUserDetails, setViewingUserDetails] = useState<User | null>(null);
+    const [editingBook, setEditingBook] = useState<Book | null>(null);
+    const [editingNews, setEditingNews] = useState<NewsArticle | null>(null);
 
     // Derived Data
     const filteredUsers = useMemo(() => {
@@ -698,103 +741,92 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }, [allUsers, userSearchQuery]);
 
     const userSuggestions = useMemo(() => {
-        return allUsers.map(u => u.name).concat(allUsers.map(u => u.email));
+        return allUsers.map(u => u.name);
     }, [allUsers]);
+
+    const filteredBooks = useMemo(() => {
+        return allBooks.filter(b => b.title.toLowerCase().includes(bookSearchQuery.toLowerCase()));
+    }, [allBooks, bookSearchQuery]);
+
+    const bookSuggestions = useMemo(() => {
+        return allBooks.map(b => b.title);
+    }, [allBooks]);
 
     const paginatedUsers = useMemo(() => {
         return filteredUsers.slice((userPage - 1) * ITEMS_PER_PAGE, userPage * ITEMS_PER_PAGE);
     }, [filteredUsers, userPage]);
-    const totalUserPages = Math.ceil(filteredUsers.length / ITEMS_PER_PAGE);
-
-    const filteredBooks = useMemo(() => {
-        return allBooks.filter(b => 
-            b.title.toLowerCase().includes(bookSearchQuery.toLowerCase()) ||
-            b.author.name.toLowerCase().includes(bookSearchQuery.toLowerCase())
-        );
-    }, [allBooks, bookSearchQuery]);
-
-    const bookSuggestions = useMemo(() => {
-        const titles = allBooks.map(b => b.title);
-        const authorNames = authors.map(a => a.name);
-        return Array.from(new Set([...titles, ...authorNames]));
-    }, [allBooks, authors]);
 
     const paginatedBooks = useMemo(() => {
         return filteredBooks.slice((bookPage - 1) * ITEMS_PER_PAGE, bookPage * ITEMS_PER_PAGE);
     }, [filteredBooks, bookPage]);
+
+    const totalUserPages = Math.ceil(filteredUsers.length / ITEMS_PER_PAGE);
     const totalBookPages = Math.ceil(filteredBooks.length / ITEMS_PER_PAGE);
 
-    const financials = useMemo(() => {
-      const authorsInSys = allUsers.filter(u => u.role === 'author');
-      
-      const data = authorsInSys.map(author => {
-          const authorBooks = allBooks.filter(b => b.author.name === author.name);
-          const bookIds = new Set(authorBooks.map(b => b.id));
-          const authorSales = allPurchases.filter(p => bookIds.has(p.bookId));
-          
-          const totalSales = authorSales.reduce((acc, curr) => acc + curr.amount, 0);
-          const commission = totalSales * 0.8; // 80% commission for author
-          const platformRevenue = totalSales * 0.2; // 20% revenue for platform
-
-          return {
-              author,
-              totalSales,
-              commission,
-              platformRevenue,
-              bookCount: authorBooks.length
-          };
-      });
-
-      if (financialSearchQuery) {
-          const query = financialSearchQuery.toLowerCase();
-          return data.filter(item => item.author.name.toLowerCase().includes(query));
-      }
-
-      return data.sort((a, b) => b.totalSales - a.totalSales);
-    }, [allUsers, allBooks, allPurchases, financialSearchQuery]);
-
-    const authorSuggestions = useMemo(() => {
-        return authors.map(a => a.name);
-    }, [authors]);
-
+    const pendingAuthors = useMemo(() => allUsers.filter(u => u.role === 'author' && u.status === 'pending'), [allUsers]);
+    const pendingBooks = useMemo(() => allBooks.filter(b => b.status === 'Pending Approval'), [allBooks]);
+    const recentUsers = useMemo(() => [...allUsers].sort((a, b) => (b.joinedDate ? new Date(b.joinedDate).getTime() : 0) - (a.joinedDate ? new Date(a.joinedDate).getTime() : 0)).slice(0, 5), [allUsers]);
 
     const stats = useMemo(() => {
-        const totalRevenue = allPurchases.reduce((acc, curr) => acc + curr.amount, 0);
+        const totalRevenue = allPurchases.reduce((acc, p) => acc + p.amount, 0);
         return {
-            totalUsers: allUsers.length,
-            totalBooks: allBooks.length,
-            totalRevenue: totalRevenue
-        }
-    }, [allUsers, allBooks, allPurchases]);
+            users: allUsers.length,
+            books: allBooks.length,
+            revenue: totalRevenue,
+            pendingAuthors: pendingAuthors.length,
+            pendingBooks: pendingBooks.length
+        };
+    }, [allUsers, allBooks, allPurchases, pendingAuthors, pendingBooks]);
 
-    const allReviews = useMemo(() => {
-        return allBooks.flatMap(book => 
-            (book.reviews || []).map(review => ({ 
-                ...review, 
-                bookTitle: book.title, 
-                bookCover: book.coverUrl,
-                book: book 
-            }))
-        ).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 5);
+    const revenueData = useMemo(() => {
+        // Mock data generator for graph
+        return Array.from({ length: 7 }, () => Math.floor(Math.random() * 5000) + 1000);
+    }, []);
+
+    const last7DaysLabels = useMemo(() => {
+        const days = [];
+        for (let i = 6; i >= 0; i--) {
+            const d = new Date();
+            d.setDate(d.getDate() - i);
+            days.push(d.toLocaleDateString(language === 'pt' ? 'pt-BR' : 'en-US', { month: 'short', day: 'numeric' }));
+        }
+        return days;
+    }, [language]);
+
+    // New summary data for Overview
+    const recentChats = useMemo(() => chats.slice(0, 5), [chats]); 
+    
+    const categoryStats = useMemo(() => {
+        const stats: Record<string, number> = {};
+        allBooks.forEach(b => {
+            stats[b.category] = (stats[b.category] || 0) + 1;
+        });
+        return Object.entries(stats)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 5); // Top 5 categories
     }, [allBooks]);
 
-    const handleDeleteBookClick = (book: Book) => {
-        setConfirmDelete({ type: 'book', id: book.id, name: book.title });
-    };
+    // Financials Tab State
+    const [withdrawals, setWithdrawals] = useState([
+        { id: 'w1', authorName: 'Beto Autor', amount: 4500, date: '2024-07-25', status: 'Pendente', authorId: 'author-user-01' },
+        { id: 'w2', authorName: 'David Platt', amount: 12000, date: '2024-07-20', status: 'Pago', authorId: '2' },
+        { id: 'w3', authorName: 'J.R.R. Tolkien', amount: 8900, date: '2024-07-18', status: 'Pago', authorId: '5' },
+    ]);
 
-    const handleDeleteUserClick = (userToDelete: User) => {
-        setConfirmDelete({ type: 'user', id: userToDelete.id, name: userToDelete.name });
-    };
-
-    const handleConfirmDelete = () => {
-        if (!confirmDelete) return;
-        if (confirmDelete.type === 'book') {
-            onDeleteBook(confirmDelete.id);
-        } else if (confirmDelete.type === 'user') {
-            onDeleteUser(confirmDelete.id);
-        }
-        setConfirmDelete(null);
-    };
+    const salesReport = useMemo(() => {
+        return allPurchases.map(p => {
+            const book = allBooks.find(b => b.id === p.bookId);
+            const user = allUsers.find(u => u.id === p.userId);
+            return {
+                ...p,
+                bookTitle: book?.title || 'Unknown Book',
+                buyerName: user?.name || 'Unknown User',
+                authorName: book?.author.name || 'Unknown Author',
+                commission: p.amount * 0.7, // 70% to author
+                platformFee: p.amount * 0.3
+            };
+        }).sort((a, b) => new Date(b.purchaseDate).getTime() - new Date(a.purchaseDate).getTime());
+    }, [allPurchases, allBooks, allUsers]);
 
     const getNotificationIcon = (type: Notification['type']) => {
         switch(type) {
@@ -805,428 +837,562 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         }
     };
 
-    const pendingAuthors = useMemo(() => {
-        return allUsers.filter(u => u.role === 'author' && u.status === 'pending');
-    }, [allUsers]);
+    const openWhatsApp = (phoneNumber: string | undefined) => {
+        if (!phoneNumber) return;
+        const cleanPhone = phoneNumber.replace(/\D/g, '');
+        window.open(`https://wa.me/${cleanPhone}`, '_blank');
+    };
 
-    const renderPendingAuthors = () => (
-        <div>
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">{t('pendingApprovalAuthors')}</h2>
-            
-            {pendingAuthors.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {pendingAuthors.map(author => (
-                        <div key={author.id} className="bg-white dark:bg-[#212121] rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden flex flex-col">
-                            <div className="p-6 flex items-start justify-between">
-                                <div className="flex items-center gap-4">
-                                    <img src={author.avatarUrl || `https://i.pravatar.cc/150?u=${author.id}`} className="w-14 h-14 rounded-full object-cover border-2 border-gray-100 dark:border-gray-600" />
-                                    <div>
-                                        <h3 className="font-bold text-lg text-gray-900 dark:text-white">{author.name}</h3>
-                                        <p className="text-sm text-gray-500 dark:text-gray-400">{author.email}</p>
-                                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-200 mt-1">
-                                            {t('pendingApproval')}
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            {author.authorOnboardingData && (
-                                <div className="px-6 pb-4 text-sm text-gray-600 dark:text-gray-300 space-y-1">
-                                    <p><strong className="text-gray-900 dark:text-white">Exp:</strong> {t(author.authorOnboardingData.experienceLevel as any)}</p>
-                                    <p><strong className="text-gray-900 dark:text-white">Genre:</strong> {t(author.authorOnboardingData.primaryGenre as any)}</p>
-                                </div>
-                            )}
+    const handleProcessPayment = (id: string, authorName: string, amount: number) => {
+        setWithdrawals(prev => prev.map(w => w.id === id ? { ...w, status: 'Pago' } : w));
+        
+        // Find user to notify (assuming we can find by name or if we had IDs in mock)
+        // Here we try to find by name since mock doesn't fully link withdrawals to user IDs strictly
+        const authorUser = allUsers.find(u => u.name === authorName);
+        if (authorUser && onAddNotification) {
+            onAddNotification({
+                userId: authorUser.id,
+                title: 'Pagamento Processado',
+                message: `Seu saque de ${formatPrice(amount)} foi processado com sucesso.`,
+                type: 'success',
+                linkTo: 'dashboard'
+            });
+        }
+        // Fallback notification simulation if function not available
+        alert(`Pagamento de ${formatPrice(amount)} para ${authorName} processado.`);
+    };
 
-                            <div className="bg-gray-50 dark:bg-[#2a2a2a] p-4 border-t border-gray-100 dark:border-gray-700 flex gap-3 mt-auto">
-                                <button 
-                                    onClick={() => setViewingUserDetails(author)} 
-                                    className="flex-1 py-2 rounded-lg bg-white dark:bg-[#3e3e3e] border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 font-medium text-sm hover:bg-gray-50 dark:hover:bg-[#4e4e4e] transition-colors"
-                                >
-                                    {t('viewDetails')}
-                                </button>
-                                <button 
-                                    onClick={() => onUpdateUser(author.id, { status: 'active' })} 
-                                    className="flex-1 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white font-bold text-sm transition-colors shadow-sm"
-                                >
-                                    {t('approve')}
-                                </button>
-                                <button 
-                                    onClick={() => handleDeleteUserClick(author)} 
-                                    className="p-2 rounded-lg border border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-                                    title={t('reject')}
-                                >
-                                    <XIcon className="h-5 w-5" />
-                                </button>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            ) : (
-                <div className="text-center py-16 bg-white dark:bg-[#212121] rounded-xl border border-gray-200 dark:border-gray-700">
-                    <div className="bg-gray-100 dark:bg-gray-800 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
-                        <CheckCircleIcon className="h-8 w-8 text-green-500" />
-                    </div>
-                    <h3 className="text-xl font-semibold text-gray-900 dark:text-white">Tudo limpo!</h3>
-                    <p className="text-gray-500 dark:text-gray-400 mt-2">Não há autores pendentes de aprovação no momento.</p>
-                </div>
-            )}
-        </div>
-    );
-
-    const renderOverview = () => (
-        <div className="space-y-8">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-                <StatCard title={t('totalUsers')} value={stats.totalUsers.toLocaleString()} icon={<UsersIcon className="h-6 w-6 text-blue-500"/>} />
-                <StatCard title={t('booksOnPlatform')} value={stats.totalBooks.toLocaleString()} icon={<BookOpenIcon className="h-6 w-6 text-indigo-500"/>} />
-                <StatCard title={t('totalRevenue')} value={formatPrice(stats.totalRevenue)} icon={<CurrencyDollarIcon className="h-6 w-6 text-green-500"/>} />
-            </div>
-
-            <div className="bg-white dark:bg-[#212121] p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-                <h3 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">{t('recentReviews')}</h3>
-                {allReviews.length > 0 ? (
-                    <div className="space-y-4">
-                         {allReviews.map((review) => (
-                            <div key={review.id} className="flex items-start gap-4 p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-[#2a2a2a] transition-colors border-b border-gray-100 dark:border-gray-800 last:border-0">
-                                <img 
-                                    src={review.bookCover} 
-                                    alt={review.bookTitle} 
-                                    className="w-10 h-14 object-cover rounded shadow-sm flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity" 
-                                    onClick={() => onSelectBook(review.book)}
-                                />
-                                <div className="flex-1">
-                                    <div className="flex justify-between items-start">
-                                        <div>
-                                             <h4 
-                                                className="font-semibold text-sm text-gray-900 dark:text-white cursor-pointer hover:text-indigo-500 transition-colors"
-                                                onClick={() => onSelectBook(review.book)}
-                                             >
-                                                {review.bookTitle}
-                                             </h4>
-                                             <span className="text-xs text-gray-500 dark:text-gray-400">by {review.userName}</span>
-                                        </div>
-                                        <div className="flex text-yellow-400 text-xs">
-                                            {[...Array(5)].map((_, i) => (
-                                                <StarIcon key={i} className={`h-3 w-3 ${i < review.rating ? 'text-yellow-400' : 'text-gray-300 dark:text-gray-600'}`} />
-                                            ))}
-                                        </div>
-                                    </div>
-                                    <p className="text-gray-600 dark:text-gray-300 text-sm italic mt-1 line-clamp-2">"{review.comment}"</p>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                ) : (
-                    <p className="text-gray-500 dark:text-gray-400 text-sm">{t('noReviewsYet')}</p>
-                )}
-            </div>
-        </div>
-    );
-
-    const renderUsers = () => (
-        <div>
-            <div className="flex justify-between items-center mb-4">
-                <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{t('manageUsers')}</h2>
-                <div className="relative w-64 z-10">
-                    <SearchInput 
-                        value={userSearchQuery}
-                        onChange={setUserSearchQuery}
-                        onSearch={setUserSearchQuery}
-                        suggestions={userSuggestions}
-                        historyKey="admin_users"
-                        placeholder={t('searchUsers')}
-                    />
-                </div>
-            </div>
-
-            <div className="bg-white dark:bg-[#212121] rounded-lg shadow-md overflow-x-auto border border-gray-200 dark:border-gray-800">
-                 <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-800">
-                    <thead className="bg-gray-50 dark:bg-[#2a2a2a]">
-                        <tr>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">{t('user')}</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">{t('role')}</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">{t('status')}</th>
-                            <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">{t('actions')}</th>
-                        </tr>
-                    </thead>
-                    <tbody className="bg-white dark:bg-[#212121] divide-y divide-gray-200 dark:divide-gray-800">
-                        {paginatedUsers.map(u => (
-                            <tr key={u.id} className="hover:bg-gray-50 dark:hover:bg-[#2a2a2a] transition-colors">
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                    <div className="flex items-center">
-                                        <div className="flex-shrink-0 h-8 w-8">
-                                            <img className="h-8 w-8 rounded-full" src={u.avatarUrl || `https://i.pravatar.cc/150?u=${u.id}`} alt="" />
-                                        </div>
-                                        <div className="ml-4">
-                                            <div className="text-sm font-medium text-gray-900 dark:text-white flex items-center gap-2">
-                                                {u.name}
-                                                {u.status === 'pending' && u.role === 'author' && (
-                                                    <button onClick={() => setViewingUserDetails(u)} className="text-gray-400 hover:text-blue-500 transition-colors" title={t('viewDetails')}>
-                                                        <EyeIcon className="h-4 w-4" />
-                                                    </button>
-                                                )}
-                                            </div>
-                                            <div className="text-xs text-gray-500 dark:text-gray-400">{u.email}</div>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 capitalize">{u.role}</td>
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                     <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                                        u.status === 'active' ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300' :
-                                        u.status === 'pending' ? 'bg-orange-100 dark:bg-orange-900 text-orange-700 dark:text-orange-300' :
-                                        'bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300'
-                                    }`}>
-                                        {u.status}
-                                    </span>
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
-                                    <button onClick={() => setEditingUser(u)} className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-900 dark:hover:text-indigo-300">{t('edit')}</button>
-                                    {u.status !== 'blocked' ? (
-                                        <button onClick={() => onUpdateUser(u.id, { status: 'blocked' })} className="text-red-600 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300">{t('block')}</button>
-                                    ) : (
-                                         <button onClick={() => onUpdateUser(u.id, { status: 'active' })} className="text-green-600 dark:text-green-400 hover:text-green-900 dark:hover:text-green-300">{t('activate')}</button>
-                                    )}
-                                    {u.id !== user.id && (
-                                        <button onClick={() => handleDeleteUserClick(u)} className="text-gray-500 hover:text-red-500 transition-colors" title={t('delete')}>
-                                            <TrashIcon className="h-4 w-4"/>
-                                        </button>
-                                    )}
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
-             <Pagination currentPage={userPage} totalPages={totalUserPages} onPageChange={setUserPage} />
-        </div>
-    );
-
-     const renderBooks = () => (
-      <div>
-                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4">
-                    <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{t('manageBooks')}</h2>
-                    {/* Book Search */}
-                    <div className="flex items-center gap-4 w-full sm:w-auto z-10">
-                        <div className="relative flex-grow sm:w-64">
-                             <SearchInput 
-                                value={bookSearchQuery}
-                                onChange={setBookSearchQuery}
-                                onSearch={setBookSearchQuery}
-                                suggestions={bookSuggestions}
-                                historyKey="admin_books"
-                                placeholder={t('searchBooksAdmin')}
-                            />
-                        </div>
-                         <button 
-                            onClick={() => setIsAddingBook(true)}
-                            className="bg-brand-red hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition-colors flex items-center space-x-2 text-sm shadow-md flex-shrink-0"
-                        >
-                            <PlusIcon className="h-4 w-4"/>
-                            <span>{t('addBook')}</span>
-                        </button>
-                    </div>
-                 </div>
-                 
-                 <div className="mb-4 text-sm text-gray-500 dark:text-gray-400">
-                    {filteredBooks.length > 0 ? t('showingResults', {
-                        start: (bookPage - 1) * ITEMS_PER_PAGE + 1,
-                        end: Math.min(bookPage * ITEMS_PER_PAGE, filteredBooks.length),
-                        total: filteredBooks.length
-                    }) : ''}
-                 </div>
-
-                 <div className="bg-white dark:bg-[#212121] rounded-lg shadow-md overflow-x-auto border border-gray-200 dark:border-gray-800">
-                    <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-800">
-                        <thead className="bg-gray-50 dark:bg-[#2a2a2a]">
-                             <tr>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">{t('bookTitle')}</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">{t('author')}</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">{t('published')}</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">{t('status')}</th>
-                                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">{t('actions')}</th>
-                            </tr>
-                        </thead>
-                        <tbody className="bg-white dark:bg-[#212121] divide-y divide-gray-200 dark:divide-gray-800">
-                            {paginatedBooks.length > 0 ? paginatedBooks.map(b => ( 
-                                <tr key={b.id} className="hover:bg-gray-50 dark:hover:bg-[#2a2a2a] group transition-colors">
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white cursor-pointer" onClick={() => onSelectBook(b)}>
-                                        <div className="flex items-center gap-3">
-                                            <img src={b.coverUrl} alt={b.title} className="w-8 h-12 object-cover rounded shadow-sm" />
-                                            <div>
-                                                {b.title}
-                                                {b.isFeatured && (
-                                                    <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">
-                                                        <SparklesIcon className="h-3 w-3 mr-1"/>
-                                                        {t('isFeatured')}
-                                                    </span>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                                        <div className="flex flex-col">
-                                            <span>{b.author.name}</span>
-                                            <span className="text-xs text-gray-500 dark:text-gray-600 group-hover:text-gray-700 dark:group-hover:text-gray-500 transition-colors">
-                                                {/* Try to find author details in user list if possible, or standard author details */}
-                                                {allUsers.find(u => u.name === b.author.name)?.email || 'Email não disponível'}
-                                            </span>
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                                        {b.publishDate ? new Date(b.publishDate).toLocaleDateString(language === 'pt' ? 'pt-BR' : 'en-US') : 'N/A'}
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap">
-                                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                                            b.status === 'Published' ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300' :
-                                            b.status === 'Pending Approval' ? 'bg-orange-100 dark:bg-orange-900 text-orange-700 dark:text-orange-300' :
-                                            'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-                                        }`}>
-                                            {t(b.status?.replace(' ', '') as any) || b.status}
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-4">
-                                         <button onClick={() => onReadBook(b)} className="text-gray-500 dark:text-gray-400 hover:text-blue-500 dark:hover:text-blue-400" title={t('read')}>
-                                            <EyeIcon className="h-4 w-4"/>
-                                         </button>
-                                         <button onClick={() => setViewingStatsFor(b)} className="text-brand-blue dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300" title="Ver Estatísticas"><ChartBarIcon className="h-4 w-4"/></button>
-                                         <button onClick={() => setEditingBook(b)} className="text-brand-blue dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-300" title="Editar Livro"><PencilIcon className="h-4 w-4"/></button>
-                                         <button 
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleDeleteBookClick(b);
-                                            }} 
-                                            className="text-red-600 dark:text-red-500 hover:text-red-500 dark:hover:text-red-400" 
-                                            title="Apagar Livro"
-                                        >
-                                            <TrashIcon className="h-4 w-4"/>
-                                        </button>
-                                    </td>
-                                </tr>
-                            )) : (
-                                <tr>
-                                    <td colSpan={5} className="px-6 py-4 text-center text-gray-500 text-sm">
-                                        {bookSearchQuery 
-                                            ? `${t('noResultsFound')} "${bookSearchQuery}".`
-                                            : "Nenhum livro encontrado."
-                                        }
-                                    </td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-                <Pagination currentPage={bookPage} totalPages={totalBookPages} onPageChange={setBookPage} />
-            </div>
-  );
-
-    const renderFinancials = () => (
-      <div className="mb-12">
-             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4">
-                 <h2 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                     <CurrencyDollarIcon className="h-6 w-6 text-green-500 dark:text-green-400" />
-                     {t('financialReports')}
-                 </h2>
-                 {/* Financial Search */}
-                 <div className="relative w-full sm:w-64 z-10">
-                     <SearchInput 
-                        value={financialSearchQuery}
-                        onChange={setFinancialSearchQuery}
-                        onSearch={setFinancialSearchQuery}
-                        suggestions={authorSuggestions}
-                        historyKey="admin_financials"
-                        placeholder={t('searchAuthors')}
-                    />
-                 </div>
-             </div>
-             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-x-auto border border-gray-200 dark:border-gray-700">
-                 <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                     <thead className="bg-gray-50 dark:bg-gray-700/50">
-                         <tr>
-                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">{t('author')}</th>
-                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">{t('paymentDetails')}</th>
-                             <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">{t('totalSales')}</th>
-                             <th className="px-6 py-3 text-right text-xs font-medium text-green-600 dark:text-green-400 uppercase tracking-wider">{t('authorCommission')}</th>
-                             <th className="px-6 py-3 text-right text-xs font-medium text-blue-600 dark:text-blue-400 uppercase tracking-wider">{t('platformRevenue')}</th>
-                         </tr>
-                     </thead>
-                     <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                         {financials.length > 0 ? financials.map((item, idx) => (
-                             <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
-                                 <td className="px-6 py-4 whitespace-nowrap">
-                                     <div className="text-sm font-bold text-gray-900 dark:text-white">{item.author.name}</div>
-                                     <div className="text-xs text-gray-500 dark:text-gray-400">{item.bookCount} {t('books').toLowerCase()}</div>
-                                 </td>
-                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                                     {item.author.whatsapp ? (
-                                         <div className="flex items-center gap-1">
-                                             <span>{item.author.preferredPaymentMethod || 'N/A'}</span>
-                                             <span className="text-xs bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 px-2 py-0.5 rounded">{item.author.whatsapp}</span>
-                                         </div>
-                                     ) : 'N/A'}
-                                 </td>
-                                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium text-gray-900 dark:text-white">
-                                     {formatPrice(item.totalSales)}
-                                 </td>
-                                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-bold text-green-600 dark:text-green-400">
-                                     {formatPrice(item.commission)}
-                                 </td>
-                                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium text-blue-600 dark:text-blue-400">
-                                     {formatPrice(item.platformRevenue)}
-                                 </td>
-                             </tr>
-                         )) : (
-                             <tr>
-                                 <td colSpan={5} className="px-6 py-4 text-center text-gray-500 text-sm">
-                                     {financialSearchQuery ? `${t('noResultsFound')} "${financialSearchQuery}"` : "Nenhuma venda registrada."}
-                                 </td>
-                             </tr>
-                         )}
-                     </tbody>
-                 </table>
-             </div>
-         </div>
-    );
+    const handleExportCSV = () => {
+        const headers = ['Data', 'Livro', 'Comprador', 'Valor', 'Comissão Autor', 'Taxa Plataforma'];
+        const rows = salesReport.map(sale => [
+            new Date(sale.purchaseDate).toLocaleDateString(),
+            sale.bookTitle,
+            sale.buyerName,
+            sale.amount.toFixed(2),
+            sale.commission.toFixed(2),
+            sale.platformFee.toFixed(2)
+        ]);
+        
+        const csvContent = [
+            headers.join(','),
+            ...rows.map(row => row.join(','))
+        ].join('\n');
+        
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', 'relatorio_vendas.csv');
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
 
     return (
         <div className="flex flex-col md:flex-row min-h-screen pb-20 md:pb-0 relative">
-             <ConfirmationModal 
-                isOpen={!!confirmDelete}
-                onClose={() => setConfirmDelete(null)}
-                onConfirm={handleConfirmDelete}
-                title={`${t('delete')} ${t(confirmDelete?.type || 'item')}`}
-                message={t('confirmDeleteGeneral', { type: t(confirmDelete?.type || 'item'), name: confirmDelete?.name })}
-             />
+            {confirmDelete && (
+                <ConfirmationModal
+                    isOpen={!!confirmDelete}
+                    onClose={() => setConfirmDelete(null)}
+                    onConfirm={() => {
+                        if (confirmDelete.type === 'user') onDeleteUser(confirmDelete.id);
+                        else if (confirmDelete.type === 'book') onDeleteBook(confirmDelete.id);
+                        else if (confirmDelete.type === 'paymentMethod') onDeletePaymentMethod(confirmDelete.id);
+                        else if (confirmDelete.type === 'news') onDeleteNews(confirmDelete.id);
+                    }}
+                    title={t('delete')}
+                    message={t('confirmDeleteGeneral', { type: confirmDelete.type === 'user' ? t('user') : confirmDelete.type === 'book' ? t('book') : confirmDelete.type === 'news' ? 'notícia' : t('paymentMethod'), name: confirmDelete.name })}
+                />
+            )}
+            {editingUser && <AccountSettingsModal user={editingUser} onClose={() => setEditingUser(null)} onSave={(data) => { onUpdateUser(editingUser.id, data); setEditingUser(null); }} isAdminEditing paymentMethods={paymentMethods} />}
+            {isAddingBook && <AdminAddBookModal onClose={() => setIsAddingBook(false)} onAddBook={onAddBook} categories={categories} authors={authors} />}
+            {editingBook && <AdminAddBookModal onClose={() => setEditingBook(null)} onAddBook={onAddBook} onUpdateBook={onUpdateBook} categories={categories} authors={authors} book={editingBook} />}
+            {isAddingNews && <AdminAddNewsModal onClose={() => setIsAddingNews(false)} onAddNews={onAddNews} />}
+            {editingNews && <AdminAddNewsModal onClose={() => setEditingNews(null)} onAddNews={onAddNews} onUpdateNews={onUpdateNews} news={editingNews} />}
+            {isAddingUser && <AdminAddUserModal onClose={() => setIsAddingUser(false)} onAddUser={onAddUser} />}
+            {viewingStatsFor && <BookStatsModal book={viewingStatsFor} onClose={() => setViewingStatsFor(null)} allUsers={allUsers} allPurchases={allPurchases} salesData={[]} />}
+            {viewingUserDetails && <UserDetailsModal user={viewingUserDetails} onClose={() => setViewingUserDetails(null)} />}
 
-             {/* Sidebar */}
-             <aside className="w-full md:w-64 bg-white dark:bg-[#1e1e1e] md:min-h-screen border-r border-gray-200 dark:border-gray-800 md:sticky md:top-[88px] md:h-[calc(100vh-88px)] md:self-start p-4 z-10">
+            <aside className="w-full md:w-64 bg-white dark:bg-[#1e1e1e] md:min-h-screen border-r border-gray-200 dark:border-gray-800 md:sticky md:top-[88px] md:h-[calc(100vh-88px)] md:self-start p-4 z-10">
                 <div className="flex md:flex-col overflow-x-auto md:overflow-visible gap-2 md:gap-0 pb-2 md:pb-0 scrollbar-hide">
-                    {[
-                        { id: 'overview', icon: HomeIcon, label: t('overview') },
-                        { id: 'pending_authors', icon: UserPlusIcon, label: t('pendingApprovalAuthors') },
-                        { id: 'users', icon: UsersIcon, label: t('manageUsers') },
-                        { id: 'books', icon: BookOpenIcon, label: t('manageBooks') },
-                        { id: 'financials', icon: CurrencyDollarIcon, label: t('financialReports') },
-                        { id: 'notifications', icon: BellIcon, label: t('notifications') },
-                    ].map(item => (
-                         <button
-                            key={item.id}
-                            onClick={() => setActiveTab(item.id as any)}
-                            className={`group w-full flex items-center gap-3 px-4 py-3 text-sm font-medium transition-all duration-200 rounded-lg mb-1 relative ${activeTab === item.id ? 'bg-indigo-50 dark:bg-indigo-900/40 text-brand-blue dark:text-indigo-400 shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#3e3e3e]'}`}
+                    {['overview', 'users', 'pending_authors', 'books', 'news', 'financials', 'notifications', 'chats'].map(tab => (
+                        <button
+                            key={tab}
+                            onClick={() => setActiveTab(tab as any)}
+                            className={`group w-full flex items-center gap-3 px-4 py-3 text-sm font-medium transition-all duration-200 rounded-lg mb-1 relative whitespace-nowrap ${activeTab === tab ? 'bg-indigo-50 dark:bg-indigo-900/40 text-brand-blue dark:text-indigo-400 shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#3e3e3e]'}`}
                         >
-                            <item.icon className="h-5 w-5" />
-                            <span>{item.label}</span>
+                            {tab === 'overview' && <HomeIcon className="h-5 w-5" />}
+                            {tab === 'users' && <UsersIcon className="h-5 w-5" />}
+                            {tab === 'pending_authors' && <UserPlusIcon className="h-5 w-5" />}
+                            {tab === 'books' && <BookOpenIcon className="h-5 w-5" />}
+                            {tab === 'news' && <NewspaperIcon className="h-5 w-5" />}
+                            {tab === 'financials' && <CurrencyDollarIcon className="h-5 w-5" />}
+                            {tab === 'notifications' && <BellIcon className="h-5 w-5" />}
+                            {tab === 'chats' && <ChatBubbleIcon className="h-5 w-5" />}
+                            <span>{t(tab as any) || tab.charAt(0).toUpperCase() + tab.slice(1).replace('_', ' ')}</span>
                         </button>
                     ))}
                 </div>
             </aside>
 
-             {/* Main Content */}
-             <main className="flex-1 p-4 md:p-8 overflow-y-auto">
-                {activeTab === 'overview' && renderOverview()}
-                {activeTab === 'users' && renderUsers()}
-                {activeTab === 'pending_authors' && renderPendingAuthors()}
-                {activeTab === 'books' && renderBooks()}
-                {activeTab === 'financials' && renderFinancials()}
+            <main className="flex-1 p-4 md:p-8 overflow-y-auto">
+                {activeTab === 'overview' && (
+                    <div className="space-y-8 animate-fade-in-down">
+                        {/* Stats Cards */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                            <StatCard title={t('totalUsers')} value={stats.users.toLocaleString()} icon={<UsersIcon className="h-6 w-6"/>} trend="+12%" onClick={() => setActiveTab('users')} />
+                            <StatCard title={t('booksOnPlatform')} value={stats.books.toLocaleString()} icon={<BookOpenIcon className="h-6 w-6"/>} trend="+5%" onClick={() => setActiveTab('books')} />
+                            <StatCard title={t('totalRevenue')} value={formatPrice(stats.revenue)} icon={<CurrencyDollarIcon className="h-6 w-6"/>} trend="+8%" onClick={() => setActiveTab('financials')} />
+                            <StatCard title={t('pendingApproval')} value={`${stats.pendingAuthors + stats.pendingBooks}`} icon={<UserPlusIcon className="h-6 w-6"/>} onClick={() => setActiveTab('pending_authors')} />
+                        </div>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                            {/* Revenue Graph - Expanded for "Financials" Summary */}
+                            <div className="lg:col-span-2 bg-white dark:bg-[#212121] p-6 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
+                                <div className="flex justify-between items-center mb-4">
+                                    <div className="flex items-center gap-2">
+                                        <CurrencyDollarIcon className="h-5 w-5 text-green-500" />
+                                        <h3 className="font-bold text-gray-900 dark:text-white">{t('revenue')} (7 Dias)</h3>
+                                    </div>
+                                    <span className="text-sm text-green-500 font-medium bg-green-100 dark:bg-green-900/20 px-2 py-1 rounded">+4.5%</span>
+                                </div>
+                                <AnalyticsGraph data={revenueData} labels={last7DaysLabels} />
+                            </div>
+
+                            {/* Combined Pending Actions - "Action Center" */}
+                            <div className="bg-white dark:bg-[#212121] p-6 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 flex flex-col">
+                                <div className="flex justify-between items-center mb-4">
+                                    <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                                        <BellIcon className="h-5 w-5 text-orange-500" />
+                                        Ações Pendentes
+                                    </h3>
+                                    {(stats.pendingAuthors > 0 || stats.pendingBooks > 0) && (
+                                        <span className="bg-red-100 text-red-700 text-xs font-bold px-2 py-0.5 rounded-full">
+                                            {stats.pendingAuthors + stats.pendingBooks} Novos
+                                        </span>
+                                    )}
+                                </div>
+                                
+                                <div className="flex-1 overflow-y-auto max-h-64 space-y-3 custom-scrollbar">
+                                    {pendingAuthors.length === 0 && pendingBooks.length === 0 && (
+                                        <div className="flex flex-col items-center justify-center h-full text-gray-500 dark:text-gray-400 py-8">
+                                            <CheckCircleIcon className="h-10 w-10 text-green-500 mb-2 opacity-50" />
+                                            <p className="text-sm">Tudo em dia!</p>
+                                        </div>
+                                    )}
+                                    
+                                    {pendingAuthors.map(u => (
+                                        <div key={u.id} className="flex items-center justify-between p-3 bg-orange-50 dark:bg-orange-900/10 border border-orange-100 dark:border-orange-900/30 rounded-lg">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-8 h-8 bg-orange-200 dark:bg-orange-800 rounded-full flex items-center justify-center text-orange-700 dark:text-orange-200 font-bold text-xs">
+                                                    A
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <p className="text-sm font-bold text-gray-900 dark:text-white truncate">Novo Autor</p>
+                                                    <p className="text-xs text-gray-500 truncate">{u.name}</p>
+                                                </div>
+                                            </div>
+                                            <button onClick={() => setActiveTab('pending_authors')} className="text-xs font-bold text-indigo-600 hover:underline">Revisar</button>
+                                        </div>
+                                    ))}
+
+                                    {pendingBooks.map(b => (
+                                        <div key={b.id} className="flex items-center justify-between p-3 bg-blue-50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/30 rounded-lg">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-8 h-8 bg-blue-200 dark:bg-blue-800 rounded-full flex items-center justify-center text-blue-700 dark:text-blue-200 font-bold text-xs">
+                                                    L
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <p className="text-sm font-bold text-gray-900 dark:text-white truncate">Novo Livro</p>
+                                                    <p className="text-xs text-gray-500 truncate">{b.title}</p>
+                                                </div>
+                                            </div>
+                                            <button onClick={() => setActiveTab('books')} className="text-xs font-bold text-indigo-600 hover:underline">Revisar</button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Secondary Stats Grid - New Summary Elements */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                            
+                            {/* Recent Users */}
+                            <div className="bg-white dark:bg-[#212121] p-6 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
+                                <div className="flex justify-between items-center mb-4">
+                                    <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                                        <UsersIcon className="h-5 w-5 text-indigo-500" />
+                                        Usuários Recentes
+                                    </h3>
+                                </div>
+                                <div className="space-y-4">
+                                    {recentUsers.map(u => (
+                                        <div key={u.id} onClick={() => setViewingUserDetails(u)} className="flex items-center gap-3 p-2 hover:bg-gray-50 dark:hover:bg-[#2a2a2a] rounded-lg transition-colors cursor-pointer">
+                                            <img src={u.avatarUrl || `https://i.pravatar.cc/150?u=${u.id}`} className="w-10 h-10 rounded-full object-cover border border-gray-200 dark:border-gray-600" />
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{u.name}</p>
+                                                <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{u.email}</p>
+                                            </div>
+                                            <div className="text-xs text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded">
+                                                {u.role}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Content/Category Distribution (Books Summary) */}
+                            <div className="bg-white dark:bg-[#212121] p-6 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
+                                <div className="flex justify-between items-center mb-4">
+                                    <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                                        <ChartPieIcon className="h-5 w-5 text-purple-500" />
+                                        Distribuição
+                                    </h3>
+                                </div>
+                                <div className="space-y-4">
+                                    {categoryStats.map(([category, count], idx) => (
+                                        <div key={category} className="relative">
+                                            <div className="flex justify-between text-sm mb-1">
+                                                <span className="text-gray-700 dark:text-gray-300">{category}</span>
+                                                <span className="font-bold text-gray-900 dark:text-white">{count}</span>
+                                            </div>
+                                            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                                                <div 
+                                                    className={`h-2 rounded-full ${['bg-blue-500', 'bg-green-500', 'bg-yellow-500', 'bg-red-500', 'bg-purple-500'][idx % 5]}`} 
+                                                    style={{ width: `${(count / allBooks.length) * 100}%` }}
+                                                ></div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {categoryStats.length === 0 && <p className="text-gray-500 text-sm text-center py-4">Sem livros.</p>}
+                                </div>
+                            </div>
+
+                            {/* Recent Chats (Chats Summary) */}
+                            <div className="bg-white dark:bg-[#212121] p-6 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
+                                <div className="flex justify-between items-center mb-4">
+                                    <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                                        <ChatBubbleIcon className="h-5 w-5 text-teal-500" />
+                                        Suporte Recente
+                                    </h3>
+                                    <button onClick={() => setActiveTab('chats')} className="text-xs text-indigo-500 hover:underline font-semibold">{t('viewAll')}</button>
+                                </div>
+                                <div className="space-y-3">
+                                    {recentChats.map(chat => (
+                                        <div key={chat.id} onClick={() => onOpenChat(chat.id)} className="p-3 bg-gray-50 dark:bg-[#2a2a2a] rounded-lg border border-gray-100 dark:border-gray-800 cursor-pointer hover:bg-gray-100 dark:hover:bg-[#333]">
+                                            <div className="flex justify-between items-start mb-1">
+                                                <span className="text-xs font-bold text-gray-900 dark:text-white">Chat #{chat.id.slice(-4)}</span>
+                                                <span className="text-[10px] text-gray-400">{new Date(chat.lastUpdated).toLocaleDateString()}</span>
+                                            </div>
+                                            <p className="text-xs text-gray-600 dark:text-gray-400 truncate">
+                                                {chat.messages[chat.messages.length - 1]?.content || 'Nova conversa'}
+                                            </p>
+                                        </div>
+                                    ))}
+                                    {recentChats.length === 0 && <p className="text-gray-500 text-sm text-center py-4">Nenhum chat ativo.</p>}
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+                )}
+
+                {activeTab === 'users' && (
+                    <div>
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+                            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{t('manageUsers')}</h2>
+                            <div className="flex gap-4 w-full sm:w-auto">
+                                <SearchInput value={userSearchQuery} onChange={setUserSearchQuery} suggestions={userSuggestions} historyKey="admin_users" placeholder={t('searchUsers')} className="w-full sm:w-64" />
+                                <button onClick={() => setIsAddingUser(true)} className="bg-brand-blue text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2 text-sm whitespace-nowrap shadow-md hover:bg-blue-700 transition-colors"><PlusIcon className="h-4 w-4"/>Adicionar Usuário</button>
+                            </div>
+                        </div>
+                        <div className="bg-white dark:bg-[#212121] rounded-lg shadow overflow-hidden">
+                            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                                <thead className="bg-gray-50 dark:bg-[#2a2a2a]">
+                                    <tr>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">{t('name')}</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">{t('email')}</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">{t('role')}</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">{t('status')}</th>
+                                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">{t('actions')}</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="bg-white dark:bg-[#212121] divide-y divide-gray-200 dark:divide-gray-700">
+                                    {paginatedUsers.map(u => (
+                                        <tr key={u.id} onClick={() => setViewingUserDetails(u)} className="hover:bg-gray-50 dark:hover:bg-[#2a2a2a] cursor-pointer">
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{u.name}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{u.email}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 capitalize">{u.role}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${u.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                                    {u.status}
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2" onClick={e => e.stopPropagation()}>
+                                                {u.whatsapp && (
+                                                    <button onClick={() => openWhatsApp(u.whatsapp)} className="text-green-600 hover:text-green-900 dark:text-green-400 dark:hover:text-green-300" title="WhatsApp">
+                                                        <WhatsAppIcon className="h-4 w-4"/>
+                                                    </button>
+                                                )}
+                                                <button onClick={() => setEditingUser(u)} className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300"><PencilIcon className="h-4 w-4"/></button>
+                                                <button onClick={() => setConfirmDelete({ type: 'user', id: u.id, name: u.name })} className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300"><TrashIcon className="h-4 w-4"/></button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                        <Pagination currentPage={userPage} totalPages={totalUserPages} onPageChange={setUserPage} />
+                    </div>
+                )}
+
+                {activeTab === 'pending_authors' && (
+                    <div>
+                        <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">{t('pendingApprovalAuthors')}</h2>
+                        <div className="grid gap-6">
+                            {pendingAuthors.map(authorUser => (
+                                <div key={authorUser.id} className="bg-white dark:bg-[#212121] p-6 rounded-lg shadow flex justify-between items-center">
+                                    <div className="flex items-center gap-4">
+                                        <img src={authorUser.avatarUrl || `https://i.pravatar.cc/150?u=${authorUser.id}`} className="w-12 h-12 rounded-full object-cover" />
+                                        <div>
+                                            <h3 className="font-bold text-lg text-gray-900 dark:text-white">{authorUser.name}</h3>
+                                            <p className="text-sm text-gray-500 dark:text-gray-400">{authorUser.email}</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        {authorUser.whatsapp && (
+                                            <button onClick={() => openWhatsApp(authorUser.whatsapp)} className="px-4 py-2 bg-green-500 text-white rounded text-sm font-medium hover:bg-green-600 flex items-center gap-1">
+                                                <WhatsAppIcon className="h-4 w-4" />
+                                                WhatsApp
+                                            </button>
+                                        )}
+                                        <button onClick={() => setViewingUserDetails(authorUser)} className="px-4 py-2 bg-gray-100 dark:bg-gray-700 rounded text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600">{t('viewDetails')}</button>
+                                        <button onClick={() => onUpdateUser(authorUser.id, { status: 'active' })} className="px-4 py-2 bg-green-600 text-white rounded text-sm font-medium hover:bg-green-700">{t('approve')}</button>
+                                        <button onClick={() => onDeleteUser(authorUser.id)} className="px-4 py-2 bg-red-600 text-white rounded text-sm font-medium hover:bg-red-700">{t('reject')}</button>
+                                    </div>
+                                </div>
+                            ))}
+                            {pendingAuthors.length === 0 && <p className="text-gray-500">{t('noNotifications')}</p>}
+                        </div>
+                    </div>
+                )}
+
+                {activeTab === 'books' && (
+                    <div>
+                        <div className="flex justify-between items-center mb-6">
+                            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{t('manageBooks')}</h2>
+                            <div className="flex gap-4">
+                                <SearchInput value={bookSearchQuery} onChange={setBookSearchQuery} suggestions={bookSuggestions} historyKey="admin_books" placeholder={t('searchBooks')} className="w-64" />
+                                <button onClick={() => setIsAddingBook(true)} className="bg-brand-red text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2 text-sm"><PlusIcon className="h-4 w-4"/>{t('addBook')}</button>
+                            </div>
+                        </div>
+                        <div className="bg-white dark:bg-[#212121] rounded-lg shadow overflow-hidden">
+                            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                                <thead className="bg-gray-50 dark:bg-[#2a2a2a]">
+                                    <tr>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">{t('bookTitle')}</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">{t('author')}</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">{t('category')}</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">{t('status')}</th>
+                                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">{t('actions')}</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="bg-white dark:bg-[#212121] divide-y divide-gray-200 dark:divide-gray-700">
+                                    {paginatedBooks.map(b => (
+                                        <tr key={b.id} className="hover:bg-gray-50 dark:hover:bg-[#2a2a2a]">
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white flex items-center gap-3">
+                                                <img src={b.coverUrl} className="w-8 h-12 object-cover rounded" />
+                                                {b.title}
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{b.author.name}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{b.category}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${b.status === 'Published' ? 'bg-green-100 text-green-800' : b.status === 'Pending Approval' ? 'bg-orange-100 text-orange-800' : 'bg-gray-100 text-gray-800'}`}>
+                                                    {b.status}
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
+                                                {b.status === 'Pending Approval' && (
+                                                    <button onClick={() => onUpdateBook(b.id, { status: 'Published' })} className="text-green-600 hover:text-green-900" title={t('approve')}><CheckCircleIcon className="h-4 w-4"/></button>
+                                                )}
+                                                <button onClick={() => setViewingStatsFor(b)} className="text-blue-600 hover:text-blue-900" title="Stats"><ChartBarIcon className="h-4 w-4"/></button>
+                                                <button onClick={() => setEditingBook(b)} className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400" title={t('editBook')}><PencilIcon className="h-4 w-4"/></button>
+                                                <button onClick={() => setConfirmDelete({ type: 'book', id: b.id, name: b.title })} className="text-red-600 hover:text-red-900"><TrashIcon className="h-4 w-4"/></button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                        <Pagination currentPage={bookPage} totalPages={totalBookPages} onPageChange={setBookPage} />
+                    </div>
+                )}
+
+                {activeTab === 'news' && (
+                    <div>
+                        <div className="flex justify-between items-center mb-6">
+                            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Gerenciar Blog de Notícias</h2>
+                            <button onClick={() => setIsAddingNews(true)} className="bg-brand-blue text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2 text-sm"><PlusIcon className="h-4 w-4"/>Adicionar Notícia</button>
+                        </div>
+                        <div className="bg-white dark:bg-[#212121] rounded-lg shadow overflow-hidden">
+                            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                                <thead className="bg-gray-50 dark:bg-[#2a2a2a]">
+                                    <tr>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Título</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Data</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Hashtags</th>
+                                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="bg-white dark:bg-[#212121] divide-y divide-gray-200 dark:divide-gray-700">
+                                    {news.map(n => (
+                                        <tr key={n.id} className="hover:bg-gray-50 dark:hover:bg-[#2a2a2a]">
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white flex items-center gap-3">
+                                                <img src={n.imageUrl} className="w-10 h-10 object-cover rounded" />
+                                                {n.title}
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{new Date(n.date).toLocaleDateString()}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                                {n.hashtags.join(', ')}
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
+                                                <button onClick={() => setEditingNews(n)} className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400"><PencilIcon className="h-4 w-4"/></button>
+                                                <button onClick={() => setConfirmDelete({ type: 'news', id: n.id, name: n.title })} className="text-red-600 hover:text-red-900"><TrashIcon className="h-4 w-4"/></button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {news.length === 0 && (
+                                        <tr>
+                                            <td colSpan={4} className="px-6 py-4 text-center text-sm text-gray-500">Nenhuma notícia cadastrada.</td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                )}
+
+                {activeTab === 'financials' && (
+                    <div className="space-y-8">
+                        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{t('financialReports')}</h2>
+                        
+                        {/* Financial Stats */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                            <div className="bg-white dark:bg-[#212121] p-6 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
+                                <div className="flex items-center gap-3 mb-2">
+                                    <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg text-green-600">
+                                        <CurrencyDollarIcon className="h-6 w-6" />
+                                    </div>
+                                    <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t('totalSales')}</h3>
+                                </div>
+                                <p className="text-3xl font-bold text-gray-900 dark:text-white">{formatPrice(stats.revenue)}</p>
+                            </div>
+                            <div className="bg-white dark:bg-[#212121] p-6 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
+                                <div className="flex items-center gap-3 mb-2">
+                                    <div className="p-2 bg-orange-100 dark:bg-orange-900/30 rounded-lg text-orange-600">
+                                        <UsersIcon className="h-6 w-6" />
+                                    </div>
+                                    <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Comissões a Pagar</h3>
+                                </div>
+                                <p className="text-3xl font-bold text-gray-900 dark:text-white">{formatPrice(stats.revenue * 0.7)}</p>
+                                <p className="text-xs text-gray-500 mt-1">70% do total de vendas</p>
+                            </div>
+                            <div className="bg-white dark:bg-[#212121] p-6 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
+                                <div className="flex items-center gap-3 mb-2">
+                                    <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg text-blue-600">
+                                        <ChartBarIcon className="h-6 w-6" />
+                                    </div>
+                                    <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t('platformRevenue')}</h3>
+                                </div>
+                                <p className="text-3xl font-bold text-gray-900 dark:text-white">{formatPrice(stats.revenue * 0.3)}</p>
+                                <p className="text-xs text-gray-500 mt-1">30% de comissão</p>
+                            </div>
+                        </div>
+
+                        {/* Sales Report Table */}
+                        <div className="bg-white dark:bg-[#212121] rounded-lg shadow overflow-hidden border border-gray-200 dark:border-gray-700">
+                            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#2a2a2a] flex justify-between items-center">
+                                <h3 className="text-lg font-bold text-gray-900 dark:text-white">Relatório de Vendas</h3>
+                                <button 
+                                    onClick={handleExportCSV}
+                                    className="text-xs font-bold text-indigo-600 flex items-center gap-1 hover:underline"
+                                >
+                                    <DownloadIcon className="h-3 w-3" /> Exportar CSV
+                                </button>
+                            </div>
+                            <div className="overflow-x-auto">
+                                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                                    <thead className="bg-gray-50 dark:bg-[#2a2a2a]">
+                                        <tr>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Data</th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Livro</th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Comprador</th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Valor</th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Comissão Autor (70%)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="bg-white dark:bg-[#212121] divide-y divide-gray-200 dark:divide-gray-700">
+                                        {salesReport.map((sale, idx) => (
+                                            <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-[#2a2a2a]">
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{new Date(sale.purchaseDate).toLocaleDateString()}</td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{sale.bookTitle}</td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{sale.buyerName}</td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900 dark:text-white">{formatPrice(sale.amount)}</td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600 font-medium">{formatPrice(sale.commission)}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        {/* Withdrawal Requests */}
+                        <div className="bg-white dark:bg-[#212121] rounded-lg shadow overflow-hidden border border-gray-200 dark:border-gray-700">
+                            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#2a2a2a]">
+                                <h3 className="text-lg font-bold text-gray-900 dark:text-white">Pedidos de Saque</h3>
+                                <p className="text-xs text-gray-500 mt-1">Autores podem solicitar saque 1 mês após a venda.</p>
+                            </div>
+                            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                                <thead className="bg-gray-50 dark:bg-[#2a2a2a]">
+                                    <tr>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Autor</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Valor Solicitado</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Data do Pedido</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Status</th>
+                                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="bg-white dark:bg-[#212121] divide-y divide-gray-200 dark:divide-gray-700">
+                                    {withdrawals.map((req) => (
+                                        <tr key={req.id} className="hover:bg-gray-50 dark:hover:bg-[#2a2a2a]">
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{req.authorName}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900 dark:text-white">{formatPrice(req.amount)}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{new Date(req.date).toLocaleDateString()}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                                                    req.status === 'Pago' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                                                }`}>
+                                                    {req.status}
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                                {req.status === 'Pendente' && (
+                                                    <button 
+                                                        onClick={() => handleProcessPayment(req.id, req.authorName, req.amount)}
+                                                        className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300 font-bold"
+                                                    >
+                                                        Processar Pagamento
+                                                    </button>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                )}
+
                 {activeTab === 'notifications' && (
                     <div className="bg-white dark:bg-[#212121] rounded-lg shadow-sm border border-gray-200 dark:border-gray-800">
                          <h2 className="text-xl font-bold text-gray-900 dark:text-white p-6 border-b border-gray-100 dark:border-gray-700">{t('notifications')}</h2>
@@ -1267,54 +1433,43 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         )}
                     </div>
                 )}
-             </main>
 
-             {editingUser && (
-                 <AccountSettingsModal 
-                    user={editingUser} 
-                    onClose={() => setEditingUser(null)} 
-                    onSave={(data) => {
-                        onUpdateUser(editingUser.id, data);
-                        setEditingUser(null);
-                    }}
-                    isAdminEditing={true}
-                    paymentMethods={paymentMethods}
-                 />
-             )}
-             
-             {viewingUserDetails && (
-                 <UserDetailsModal 
-                    user={viewingUserDetails}
-                    onClose={() => setViewingUserDetails(null)}
-                 />
-             )}
-
-             {viewingStatsFor && (
-                 <BookStatsModal 
-                    book={viewingStatsFor}
-                    onClose={() => setViewingStatsFor(null)}
-                    allUsers={allUsers}
-                    allPurchases={allPurchases}
-                    salesData={[]} // Mock data handling needed or passed via props if available
-                 />
-             )}
-
-             {isAddingBook && (
-                 <AdminAddBookModal 
-                    onClose={() => setIsAddingBook(false)}
-                    onAddBook={onAddBook}
-                    categories={categories}
-                    authors={authors}
-                 />
-             )}
-             
-             {editingBook && (
-                 <EditBookModal 
-                    book={editingBook} 
-                    onClose={() => setEditingBook(null)} 
-                    onSave={onUpdateBook} 
-                 />
-             )}
+                {activeTab === 'chats' && (
+                    <div className="bg-white dark:bg-[#212121] rounded-lg shadow-sm border border-gray-200 dark:border-gray-800">
+                        <h2 className="text-xl font-bold text-gray-900 dark:text-white p-6 border-b border-gray-100 dark:border-gray-700">Monitoramento de Chats</h2>
+                        {chats.length > 0 ? (
+                            <div className="divide-y divide-gray-100 dark:divide-gray-700/50">
+                                {chats.map(chat => {
+                                    const lastMsg = chat.messages[chat.messages.length - 1];
+                                    return (
+                                        <div 
+                                            key={chat.id} 
+                                            className="p-6 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors flex gap-4 cursor-pointer"
+                                            onClick={() => onOpenChat(chat.id)}
+                                        >
+                                            <div className="bg-indigo-100 dark:bg-indigo-900/30 p-3 rounded-full">
+                                                <ChatBubbleIcon className="h-6 w-6 text-indigo-600 dark:text-indigo-400" />
+                                            </div>
+                                            <div className="flex-1">
+                                                <div className="flex justify-between items-start mb-1">
+                                                    <p className="text-sm font-bold text-gray-900 dark:text-white">Chat ID: {chat.id}</p>
+                                                    <span className="text-xs text-gray-500">{new Date(chat.lastUpdated).toLocaleDateString()}</span>
+                                                </div>
+                                                <p className="text-sm text-gray-600 dark:text-gray-400 truncate">{lastMsg ? lastMsg.content : 'Sem mensagens'}</p>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        ) : (
+                            <div className="p-12 text-center">
+                                <ChatBubbleIcon className="h-12 w-12 text-gray-300 mx-auto mb-3" />
+                                <p className="text-gray-500 dark:text-gray-400">Nenhum chat ativo.</p>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </main>
         </div>
     );
 };

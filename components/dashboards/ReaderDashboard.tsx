@@ -1,9 +1,10 @@
 
 import React, { useMemo, useState, useEffect } from 'react';
-import { User, Book, Purchase, PaymentMethod, Author, Notification } from '../../types';
+import { User, Book, Purchase, PaymentMethod, Author, Notification, Chat } from '../../types';
 import BookGrid from '../BookGrid';
 import { useAppContext } from '../../contexts/AppContext';
-import { PhoneIcon, CreditCardIcon, ChevronRightIcon, BellIcon, CheckCircleIcon, InformationCircleIcon, SparklesIcon } from '../Icons';
+import { PhoneIcon, CreditCardIcon, ChevronRightIcon, BellIcon, CheckCircleIcon, InformationCircleIcon, SparklesIcon, ChatBubbleIcon, BookOpenIcon, ClockIcon } from '../Icons';
+import BecomeAuthorCTA from '../BecomeAuthorCTA';
 
 interface ReaderDashboardProps {
   user: User;
@@ -25,13 +26,16 @@ interface ReaderDashboardProps {
   activeTab: string;
   notifications: Notification[];
   onMarkAsRead: (id: string) => void;
+  chats: Chat[];
+  onOpenChat: (chatId: string) => void;
+  onBecomeAuthor: () => void;
 }
 
 const ReaderDashboard: React.FC<ReaderDashboardProps> = ({ 
     user, purchasedBooks, allBooks, onReadBook, onSelectBook, allPurchases, favoritedBooks, 
     onToggleFavorite, favoritesPage, onFavoritesPageChange, libraryPage, 
     onLibraryPageChange, booksPerPage, paymentMethods, authors, onSelectAuthor,
-    activeTab: initialTab, notifications, onMarkAsRead
+    activeTab: initialTab, notifications, onMarkAsRead, chats, onOpenChat, onBecomeAuthor
 }) => {
   const { t, formatPrice, language } = useAppContext();
   const [activeTab, setActiveTab] = useState(initialTab);
@@ -56,6 +60,12 @@ const ReaderDashboard: React.FC<ReaderDashboardProps> = ({
       if (!user.following || user.following.length === 0) return [];
       return allBooks.filter(book => user.following?.includes(book.author.id));
   }, [user.following, allBooks]);
+
+  // Get the most recently accessed book (mock logic using first purchased book for demo if no history)
+  const lastReadBook = useMemo(() => {
+      // In a real app, you'd sort by 'lastReadDate'
+      return purchasedBooks.length > 0 ? purchasedBooks[0] : null;
+  }, [purchasedBooks]);
 
   const recommendedBooks = useMemo(() => {
     if (!allBooks) return [];
@@ -119,6 +129,9 @@ const ReaderDashboard: React.FC<ReaderDashboardProps> = ({
     }
   };
 
+  // New recent notifications summary for overview
+  const recentNotifications = useMemo(() => notifications.filter(n => !n.read).slice(0, 3), [notifications]);
+
   const getNotificationIcon = (type: Notification['type']) => {
       switch(type) {
           case 'success': return <CheckCircleIcon className="h-5 w-5 text-green-500" />;
@@ -152,14 +165,109 @@ const ReaderDashboard: React.FC<ReaderDashboardProps> = ({
         >
             {t('notifications')}
         </button>
+        <button
+            onClick={() => setActiveTab('messages')}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'messages' ? 'bg-brand-blue text-white shadow' : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+        >
+            Mensagens
+        </button>
       </div>
 
       {activeTab === 'overview' && (
-          <div className="space-y-12">
+          <div className="space-y-12 animate-fade-in-down">
+            {/* Reading Stats Summary */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                <div className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl p-6 text-white shadow-lg relative overflow-hidden">
+                    <div className="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-white/20 rounded-full blur-2xl"></div>
+                    <div className="relative z-10">
+                        <p className="text-indigo-100 text-xs font-bold uppercase tracking-wide mb-1">Minha Biblioteca</p>
+                        <p className="text-3xl font-bold">{purchasedBooks.length}</p>
+                        <p className="text-indigo-100 text-xs mt-2">Livros adquiridos</p>
+                    </div>
+                    <BookOpenIcon className="absolute bottom-4 right-4 h-8 w-8 text-white/30" />
+                </div>
+                <div className="bg-white dark:bg-[#212121] border border-gray-200 dark:border-gray-700 rounded-xl p-6 shadow-sm flex flex-col justify-center">
+                    <div className="flex items-center gap-3 mb-2">
+                        <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg text-green-600 dark:text-green-400">
+                            <CheckCircleIcon className="h-5 w-5" />
+                        </div>
+                        <span className="text-sm text-gray-500 dark:text-gray-400 font-medium">Autores Seguidos</span>
+                    </div>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white pl-1">{followedAuthors.length}</p>
+                </div>
+                <div className="bg-white dark:bg-[#212121] border border-gray-200 dark:border-gray-700 rounded-xl p-6 shadow-sm flex flex-col justify-center">
+                    <div className="flex items-center gap-3 mb-2">
+                        <div className="p-2 bg-orange-100 dark:bg-orange-900/30 rounded-lg text-orange-600 dark:text-orange-400">
+                            <ClockIcon className="h-5 w-5" />
+                        </div>
+                        <span className="text-sm text-gray-500 dark:text-gray-400 font-medium">Tempo de Leitura</span>
+                    </div>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white pl-1">-- h -- min</p>
+                    <p className="text-xs text-gray-400 pl-1 mt-1">Estimado</p>
+                </div>
+            </div>
+
+            {/* Main Content Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {/* Continue Reading Card (Left 2/3) */}
+                <div className="lg:col-span-2">
+                    {lastReadBook ? (
+                        <div className="bg-white dark:bg-[#212121] rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700 flex flex-col md:flex-row gap-6 items-center h-full">
+                            <img src={lastReadBook.coverUrl} alt={lastReadBook.title} className="w-24 h-36 object-cover rounded-lg shadow-md" />
+                            <div className="flex-1 text-center md:text-left">
+                                <h3 className="text-xs font-bold text-indigo-500 uppercase tracking-wider mb-1">Continue Lendo</h3>
+                                <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">{lastReadBook.title}</h2>
+                                <p className="text-gray-600 dark:text-gray-400 text-sm mb-4">de {lastReadBook.author.name}</p>
+                                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5 mb-4 max-w-md mx-auto md:mx-0">
+                                    <div className="bg-indigo-600 h-2.5 rounded-full" style={{ width: '45%' }}></div>
+                                </div>
+                                <p className="text-xs text-gray-500 mb-4">45% concluído</p>
+                                <button 
+                                    onClick={() => onReadBook(lastReadBook)}
+                                    className="px-6 py-2 bg-brand-blue text-white font-bold rounded-full hover:bg-blue-700 transition-colors shadow-lg shadow-blue-500/30"
+                                >
+                                    Continuar Leitura
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="bg-white dark:bg-[#212121] rounded-xl p-8 shadow-sm border border-gray-200 dark:border-gray-700 h-full flex flex-col justify-center items-center text-center">
+                            <BookOpenIcon className="h-12 w-12 text-gray-300 mb-4" />
+                            <h3 className="text-lg font-bold text-gray-900 dark:text-white">Sua aventura começa aqui</h3>
+                            <p className="text-gray-500 dark:text-gray-400 mt-2">Explore a biblioteca e comece a ler seu primeiro livro.</p>
+                        </div>
+                    )}
+                </div>
+
+                {/* Notifications Summary (Right 1/3) */}
+                <div className="bg-white dark:bg-[#212121] rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                            <BellIcon className="h-5 w-5 text-orange-500" />
+                            Novidades
+                        </h3>
+                        <button onClick={() => setActiveTab('notifications')} className="text-xs text-indigo-500 hover:underline font-semibold">{t('viewAll')}</button>
+                    </div>
+                    <div className="space-y-3">
+                        {recentNotifications.length > 0 ? recentNotifications.map(n => (
+                            <div key={n.id} className="flex gap-3 items-start p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-white/5 transition-colors cursor-pointer" onClick={() => setActiveTab('notifications')}>
+                                <div className="mt-0.5">{getNotificationIcon(n.type)}</div>
+                                <div className="min-w-0">
+                                    <p className="text-xs font-bold text-gray-800 dark:text-gray-200 truncate">{n.title}</p>
+                                    <p className="text-[10px] text-gray-500 line-clamp-2">{n.message}</p>
+                                </div>
+                            </div>
+                        )) : (
+                            <p className="text-sm text-gray-500 text-center py-4">Nenhuma notificação recente.</p>
+                        )}
+                    </div>
+                </div>
+            </div>
+
             {/* Followed Authors Section */}
             <div>
                 <div className="flex justify-between items-center mb-6">
-                <h2 className="text-3xl font-bold text-gray-900 dark:text-white">{t('authorsIFollow')}</h2>
+                <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{t('authorsIFollow')}</h2>
                 {followedAuthors.length > 0 && <ChevronRightIcon className="h-6 w-6 text-gray-400" />}
                 </div>
                 {followedAuthors.length > 0 ? (
@@ -209,7 +317,7 @@ const ReaderDashboard: React.FC<ReaderDashboardProps> = ({
                 </div>
             )}
             
-            {favoriteBookDetails.length > 0 ? (
+            {favoriteBookDetails.length > 0 && (
                 <BookGrid
                 title={t('favorites')}
                 books={paginatedFavorites}
@@ -222,16 +330,9 @@ const ReaderDashboard: React.FC<ReaderDashboardProps> = ({
                 totalPages={totalFavoritesPages}
                 onPageChange={onFavoritesPageChange}
                 />
-            ) : (
-                <div>
-                <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-6">{t('favorites')}</h2>
-                <div className="text-center py-16 px-6 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-                    <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">{t('noFavoritesMessage')}</h2>
-                </div>
-                </div>
             )}
 
-            {purchasedBooks.length > 0 ? (
+            {purchasedBooks.length > 0 && (
                 <BookGrid
                 title="Minha Biblioteca"
                 books={paginatedLibrary}
@@ -244,42 +345,6 @@ const ReaderDashboard: React.FC<ReaderDashboardProps> = ({
                 totalPages={totalLibraryPages}
                 onPageChange={onLibraryPageChange}
                 />
-            ) : (
-                <div className="text-center py-16 px-6 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-                    <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">Sua biblioteca está vazia.</h2>
-                    <p className="text-gray-600 dark:text-gray-400 mt-2">
-                        Parece que você ainda não comprou nenhum livro. Explore a loja para começar sua coleção!
-                    </p>
-                </div>
-            )}
-
-            {userPurchaseHistory.length > 0 && (
-                <div>
-                <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-6">{t('purchaseHistory')}</h2>
-                <div className="bg-white dark:bg-gray-800/50 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-                    <ul className="divide-y divide-gray-200 dark:divide-gray-700/50">
-                    {userPurchaseHistory.map(({ book, purchaseDate, paymentMethod, amount }) => (
-                        <li key={`${book.id}-${purchaseDate}`} className="p-4 flex flex-col sm:flex-row items-start sm:items-center gap-4 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors duration-200">
-                        <img src={book.coverUrl} alt={book.title} className="w-16 h-24 object-cover rounded-md flex-shrink-0 shadow-sm" />
-                        <div className="flex-grow">
-                            <h3 className="font-bold text-gray-900 dark:text-white">{book.title}</h3>
-                            <p className="text-sm text-gray-500 dark:text-gray-400">{book.author.name}</p>
-                            <div className="text-xs text-gray-500 mt-1">
-                            <span>{t('purchaseDate')}: {new Date(purchaseDate).toLocaleDateString(language === 'pt' ? 'pt-BR' : 'en-US')}</span>
-                            </div>
-                        </div>
-                        <div className="flex-shrink-0 text-left sm:text-right w-full sm:w-auto mt-2 sm:mt-0">
-                            <p className="font-bold text-gray-900 dark:text-white">{formatPrice(amount)}</p>
-                            <div className="flex items-center sm:justify-end gap-2 text-sm text-gray-500 dark:text-gray-400 mt-1">
-                            {getPaymentMethodIcon(paymentMethod)}
-                            <span>{paymentMethod}</span>
-                            </div>
-                        </div>
-                        </li>
-                    ))}
-                    </ul>
-                </div>
-                </div>
             )}
 
             {recommendedBooks.length > 0 && (
@@ -293,6 +358,10 @@ const ReaderDashboard: React.FC<ReaderDashboardProps> = ({
                 onToggleFavorite={onToggleFavorite}
                 />
             )}
+
+            <div className="mt-12">
+                <BecomeAuthorCTA onAction={onBecomeAuthor} />
+            </div>
           </div>
       )}
 
@@ -335,6 +404,42 @@ const ReaderDashboard: React.FC<ReaderDashboardProps> = ({
                 </div>
             )}
         </div>
+      )}
+
+      {activeTab === 'messages' && (
+          <div className="bg-white dark:bg-gray-800/50 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white p-6 border-b border-gray-100 dark:border-gray-700">Mensagens</h2>
+              {chats.length > 0 ? (
+                  <div className="divide-y divide-gray-100 dark:divide-gray-700/50">
+                      {chats.map(chat => {
+                          const lastMsg = chat.messages[chat.messages.length - 1];
+                          return (
+                              <div 
+                                  key={chat.id} 
+                                  className="p-6 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors flex gap-4 cursor-pointer"
+                                  onClick={() => onOpenChat(chat.id)}
+                              >
+                                  <div className="bg-indigo-100 dark:bg-indigo-900/30 p-3 rounded-full">
+                                      <ChatBubbleIcon className="h-6 w-6 text-indigo-600 dark:text-indigo-400" />
+                                  </div>
+                                  <div className="flex-1">
+                                      <div className="flex justify-between items-start mb-1">
+                                          <p className="text-sm font-bold text-gray-900 dark:text-white">Conversa com Autor</p>
+                                          <span className="text-xs text-gray-500">{new Date(chat.lastUpdated).toLocaleDateString()}</span>
+                                      </div>
+                                      <p className="text-sm text-gray-600 dark:text-gray-400 truncate">{lastMsg ? lastMsg.content : 'Inicie a conversa...'}</p>
+                                  </div>
+                              </div>
+                          );
+                      })}
+                  </div>
+              ) : (
+                  <div className="p-12 text-center">
+                      <ChatBubbleIcon className="h-12 w-12 text-gray-300 mx-auto mb-3" />
+                      <p className="text-gray-500 dark:text-gray-400">Você ainda não tem mensagens.</p>
+                  </div>
+              )}
+          </div>
       )}
     </div>
   );

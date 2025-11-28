@@ -1,17 +1,25 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { User, Book, Purchase, PaymentMethod, Author, Notification } from '../../types';
+import { User, Book, Purchase, PaymentMethod, Author, Notification, Chat } from '../../types';
 import { useAppContext } from '../../contexts/AppContext';
 import { 
     HomeIcon, ChartBarIcon, BookOpenIcon, PlusIcon, 
     UploadIcon, DocumentTextIcon, XIcon, SparklesIcon,
     CurrencyDollarIcon, UsersIcon, PencilIcon, TrashIcon,
     CheckCircleIcon, SearchIcon, StarIcon, AnnotationIcon,
-    BellIcon, InformationCircleIcon, TagIcon, EyeIcon
+    BellIcon, InformationCircleIcon, TagIcon, EyeIcon, ChatBubbleIcon, WhatsAppIcon,
+    HeadphonesIcon, ClockIcon
 } from '../Icons';
 import { generateBookDescription, generateBookCover } from '../../services/geminiService';
 import Pagination from '../Pagination';
 import SearchInput from '../SearchInput';
+import BecomeAuthorCTA from '../BecomeAuthorCTA';
+import * as pdfjsLib from 'pdfjs-dist';
+
+const pdfjs = (pdfjsLib as any).default || pdfjsLib;
+if (pdfjs.GlobalWorkerOptions) {
+    pdfjs.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+}
 
 interface AuthorDashboardProps {
   user: User;
@@ -21,14 +29,17 @@ interface AuthorDashboardProps {
   onReadBook: (book: Book) => void;
   onDeleteBook: (bookId: string) => void;
   onUpdateBook: (bookId: string, updatedData: Partial<Book>) => void;
-  onAddBook: (newBookData: Omit<Book, 'id' | 'author' | 'coverUrl' | 'rating' | 'sales' | 'readers' | 'publishDate'> & { coverImage?: File; bookFile?: File }, authorOverride?: Author) => void;
+  onAddBook: (newBookData: Omit<Book, 'id' | 'author' | 'coverUrl' | 'rating' | 'sales' | 'readers' | 'publishDate'> & { coverImage?: File; bookFile?: File; audioFile?: File }, authorOverride?: Author) => void;
   paymentMethods: PaymentMethod[];
   categories: string[];
   activeTab: string;
   notifications: Notification[];
   onMarkAsRead: (id: string) => void;
+  chats: Chat[];
+  onOpenChat: (chatId: string) => void;
 }
 
+// ... (Keep base64ToFile, FileInput, StatCard, AnalyticsGraph, AuthorAddBookModal definitions exactly as they are) ...
 const base64ToFile = (base64String: string, filename: string): File => {
     const arr = base64String.split(',');
     const mimeMatch = arr[0].match(/:(.*?);/);
@@ -93,7 +104,6 @@ const FileInput: React.FC<{
     );
 }
 
-// ... (StatCard and AnalyticsGraph remain same) ...
 const StatCard: React.FC<{ title: string; value: string; icon: React.ReactNode }> = ({ title, value, icon }) => (
     <div className="bg-white dark:bg-[#212121] p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 flex items-center space-x-4 transition-shadow hover:shadow-md">
         <div className="bg-indigo-50 dark:bg-indigo-900/50 p-3 rounded-full border border-indigo-100 dark:border-indigo-800">
@@ -109,7 +119,7 @@ const StatCard: React.FC<{ title: string; value: string; icon: React.ReactNode }
 const AnalyticsGraph: React.FC<{ data: number[], labels: string[] }> = ({ data, labels }) => {
     const max = Math.max(...data, 1);
     return (
-        <div className="w-full h-64 flex items-end justify-between gap-2 sm:gap-4 mt-8 px-2">
+        <div className="w-full h-48 flex items-end justify-between gap-2 sm:gap-4 mt-4 px-2">
             {data.map((value, idx) => (
                 <div key={idx} className="flex flex-col items-center flex-1 h-full justify-end group relative">
                     <div className="absolute bottom-full mb-2 hidden group-hover:block bg-gray-900 dark:bg-white text-white dark:text-black text-xs font-bold px-2 py-1 rounded shadow-lg whitespace-nowrap z-10">
@@ -126,23 +136,25 @@ const AnalyticsGraph: React.FC<{ data: number[], labels: string[] }> = ({ data, 
     )
 }
 
-// ... (AuthorAddBookModal) ...
 const AuthorAddBookModal: React.FC<{ 
     onClose: () => void; 
-    onAddBook: (data: Omit<Book, 'id' | 'author' | 'coverUrl' | 'rating' | 'sales' | 'readers' | 'publishDate'> & { coverImage?: File; bookFile?: File }) => void; 
+    onAddBook: (data: Omit<Book, 'id' | 'author' | 'coverUrl' | 'rating' | 'sales' | 'readers' | 'publishDate'> & { coverImage?: File; bookFile?: File; audioFile?: File }) => void; 
     categories: string[];
     authorName: string;
 }> = ({ onClose, onAddBook, categories, authorName }) => {
     const { t } = useAppContext();
+    const [bookType, setBookType] = useState<'pdf' | 'audio'>('pdf');
     const [title, setTitle] = useState('');
     const [description, setDescription] = useState('');
     const [category, setCategory] = useState('');
     const [price, setPrice] = useState('');
-    const [pages, setPages] = useState('');
+    const [pages, setPages] = useState(0);
+    const [duration, setDuration] = useState('');
     const [language, setLanguage] = useState('Português');
     const [coverImage, setCoverImage] = useState<File | null>(null);
     const [bookFile, setBookFile] = useState<File | null>(null);
-    const [pdfError, setPdfError] = useState<string | null>(null);
+    const [audioFile, setAudioFile] = useState<File | null>(null);
+    const [fileError, setFileError] = useState<string | null>(null);
     const [isGeneratingDesc, setIsGeneratingDesc] = useState(false);
     const [isGeneratingCover, setIsGeneratingCover] = useState(false);
     
@@ -156,16 +168,52 @@ const AuthorAddBookModal: React.FC<{
         if (e.target.files && e.target.files[0]) setCoverImage(e.target.files[0]);
     };
 
-    const handleBookFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const formatDuration = (seconds: number) => {
+        const h = Math.floor(seconds / 3600);
+        const m = Math.floor((seconds % 3600) / 60);
+        if (h > 0) return `${h}h ${m}m`;
+        return `${m}m`;
+    };
+
+    const handleBookFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        if (file) {
+        if (!file) return;
+
+        if (bookType === 'pdf') {
             if (file.type !== 'application/pdf') {
-                setPdfError('O ficheiro deve ser um PDF.');
+                setFileError('O ficheiro deve ser um PDF.');
                 setBookFile(null);
-            } else {
-                setPdfError(null);
-                setBookFile(file);
+                return;
             }
+            setFileError(null);
+            setBookFile(file);
+            
+            // Detect Pages
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
+                setPages(pdf.numPages);
+            } catch (error) {
+                console.error("Error counting PDF pages", error);
+                setPages(0);
+            }
+
+        } else {
+            // Audio
+            const validTypes = ['audio/mpeg', 'audio/wav', 'audio/x-m4a', 'audio/mp4'];
+            if (!validTypes.includes(file.type) && !file.name.endsWith('.mp3')) {
+                 setFileError('Formato de áudio inválido (MP3, WAV, M4A).');
+                 setAudioFile(null);
+                 return;
+            }
+            setFileError(null);
+            setAudioFile(file);
+
+            // Detect Duration
+            const audio = new Audio(URL.createObjectURL(file));
+            audio.onloadedmetadata = () => {
+                setDuration(formatDuration(audio.duration));
+            };
         }
     };
 
@@ -186,6 +234,7 @@ const AuthorAddBookModal: React.FC<{
             return;
         }
         setIsGeneratingCover(true);
+        // Use the current description to add context to the cover generation
         const base64Image = await generateBookCover(title, authorName, category, description);
         if (base64Image) {
             const file = base64ToFile(base64Image, `cover_${title.replace(/\s+/g, '_')}_ai.png`);
@@ -198,16 +247,20 @@ const AuthorAddBookModal: React.FC<{
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        if (!bookFile || !coverImage || !title || !category || !price || !pages || !language) return;
+        if (!coverImage || !title || !category || !price || !language) return;
+        if (bookType === 'pdf' && !bookFile) return;
+        if (bookType === 'audio' && !audioFile) return;
 
         const newBookData = {
             title, description, category,
             price: parseFloat(price),
-            pages: parseInt(pages),
+            pages: bookType === 'pdf' ? pages : undefined,
+            duration: bookType === 'audio' ? duration : undefined,
             language,
             currency: 'MZN' as const,
             coverImage,
-            bookFile: bookFile || undefined,
+            bookFile: bookType === 'pdf' ? (bookFile || undefined) : undefined,
+            audioFile: bookType === 'audio' ? (audioFile || undefined) : undefined,
             salePrice: isOnSale && salePrice ? parseFloat(salePrice) : undefined,
             saleStartDate: isOnSale && saleStartDate ? saleStartDate : undefined,
             saleEndDate: isOnSale && saleEndDate ? saleEndDate : undefined,
@@ -224,7 +277,7 @@ const AuthorAddBookModal: React.FC<{
                     <h2 className="text-xl font-bold">{t('addBook')}</h2>
                     <button onClick={onClose} className="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"><XIcon className="h-5 w-5 text-gray-400" /></button>
                 </div>
-                <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+                <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[70vh] overflow-y-auto custom-scrollbar">
                     <input type="text" placeholder={t('bookTitle')} className="w-full bg-gray-50 dark:bg-[#121212] border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2" value={title} onChange={e => setTitle(e.target.value)} required />
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -242,18 +295,10 @@ const AuthorAddBookModal: React.FC<{
                     </div>
 
                     <div className="relative">
-                         <button type="button" onClick={handleGenerateDescription} disabled={isGeneratingDesc} className="absolute right-2 top-2 text-xs text-indigo-500 flex items-center gap-1">
+                         <button type="button" onClick={handleGenerateDescription} disabled={isGeneratingDesc} className="absolute right-2 top-2 text-xs text-indigo-500 flex items-center gap-1 bg-indigo-50 dark:bg-indigo-900/30 px-2 py-1 rounded-full">
                             <SparklesIcon className="h-3 w-3" /> {isGeneratingDesc ? t('generating') : t('generateWithAI')}
                          </button>
                         <textarea rows={3} placeholder={t('description')} className="w-full bg-gray-50 dark:bg-[#121212] border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2" value={description} onChange={e => setDescription(e.target.value)} required />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                        <input type="number" placeholder={t('numPages')} className="w-full bg-gray-50 dark:bg-[#121212] border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2" value={pages} onChange={e => setPages(e.target.value)} required />
-                         <select className="w-full bg-gray-50 dark:bg-[#121212] border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2" value={language} onChange={e => setLanguage(e.target.value)}>
-                            <option value="Português">Português</option>
-                            <option value="English">English</option>
-                        </select>
                     </div>
 
                     <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
@@ -302,7 +347,7 @@ const AuthorAddBookModal: React.FC<{
                                     type="button" 
                                     onClick={handleGenerateCover}
                                     disabled={isGeneratingCover}
-                                    className="text-xs text-indigo-500 hover:text-indigo-600 flex items-center gap-1 disabled:opacity-50"
+                                    className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 flex items-center gap-1 disabled:opacity-50 bg-indigo-50 dark:bg-indigo-900/30 px-2 py-1 rounded-full transition-colors"
                                 >
                                     {isGeneratingCover ? (
                                         <svg className="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -326,20 +371,41 @@ const AuthorAddBookModal: React.FC<{
                             />
                         </div>
                         <div className="flex flex-col">
-                            <span className="text-xs font-medium text-gray-500 mb-2">{t('bookFile')}</span>
+                            <div className="flex items-center justify-between mb-2">
+                                <div className="flex bg-gray-100 dark:bg-gray-800 rounded-full p-0.5">
+                                    <button
+                                        type="button"
+                                        onClick={() => { setBookType('pdf'); setAudioFile(null); }}
+                                        className={`px-3 py-1 text-xs font-bold rounded-full transition-colors ${bookType === 'pdf' ? 'bg-white dark:bg-gray-600 shadow text-gray-900 dark:text-white' : 'text-gray-500 hover:text-gray-900'}`}
+                                    >
+                                        E-Book (PDF)
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => { setBookType('audio'); setBookFile(null); }}
+                                        className={`px-3 py-1 text-xs font-bold rounded-full transition-colors ${bookType === 'audio' ? 'bg-white dark:bg-gray-600 shadow text-gray-900 dark:text-white' : 'text-gray-500 hover:text-gray-900'}`}
+                                    >
+                                        Audiobook
+                                    </button>
+                                </div>
+                                {bookType === 'pdf' && pages > 0 && <span className="text-xs text-green-500 font-medium flex items-center gap-1"><DocumentTextIcon className="h-3 w-3"/> {pages} págs</span>}
+                                {bookType === 'audio' && duration && <span className="text-xs text-green-500 font-medium flex items-center gap-1"><ClockIcon className="h-3 w-3"/> {duration}</span>}
+                            </div>
                             <FileInput 
-                                title={t('bookFile')} 
-                                formats="PDF" 
+                                title={bookType === 'pdf' ? t('bookFile') : 'Ficheiro de Áudio'} 
+                                formats={bookType === 'pdf' ? "PDF" : "MP3, WAV, M4A"} 
                                 size="50MB" 
-                                icon={<DocumentTextIcon className="h-8 w-8"/>} 
-                                file={bookFile} 
+                                icon={bookType === 'pdf' ? <DocumentTextIcon className="h-8 w-8"/> : <HeadphonesIcon className="h-8 w-8"/>} 
+                                file={bookType === 'pdf' ? bookFile : audioFile} 
                                 onChange={handleBookFileChange} 
-                                accept="application/pdf"
-                                error={pdfError}
+                                accept={bookType === 'pdf' ? "application/pdf" : "audio/*"}
+                                error={fileError}
                             />
-                            <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-2 text-center">
-                                {t('flipbookHint')}
-                            </p>
+                            {bookType === 'pdf' && (
+                                <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-2 text-center">
+                                    {t('flipbookHint')}
+                                </p>
+                            )}
                         </div>
                     </div>
 
@@ -355,10 +421,10 @@ const AuthorAddBookModal: React.FC<{
 
 const AuthorDashboard: React.FC<AuthorDashboardProps> = ({ 
     user, authorBooks, allUsers, allPurchases, onReadBook, onDeleteBook, onUpdateBook, onAddBook, paymentMethods, categories,
-    activeTab: initialTab, notifications, onMarkAsRead
+    activeTab: initialTab, notifications, onMarkAsRead, chats, onOpenChat
 }) => {
     const { t, formatPrice, language } = useAppContext();
-    const [activeTab, setActiveTab] = useState<'overview' | 'books' | 'reviews' | 'notifications'>(initialTab as any);
+    const [activeTab, setActiveTab] = useState<'overview' | 'books' | 'reviews' | 'notifications' | 'messages'>(initialTab as any);
     const [isAddingBook, setIsAddingBook] = useState(false);
     const [bookPage, setBookPage] = useState(1);
     const [searchQuery, setSearchQuery] = useState('');
@@ -414,6 +480,12 @@ const AuthorDashboard: React.FC<AuthorDashboardProps> = ({
         ).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     }, [authorBooks]);
 
+    const topBooks = useMemo(() => {
+        return [...authorBooks].sort((a, b) => (b.sales || 0) - (a.sales || 0)).slice(0, 3);
+    }, [authorBooks]);
+
+    const recentMessages = useMemo(() => chats.slice(0, 3), [chats]); 
+
     const getNotificationIcon = (type: Notification['type']) => {
         switch(type) {
             case 'success': return <CheckCircleIcon className="h-5 w-5 text-green-500" />;
@@ -421,6 +493,10 @@ const AuthorDashboard: React.FC<AuthorDashboardProps> = ({
             case 'warning': return <InformationCircleIcon className="h-5 w-5 text-yellow-500" />;
             case 'info': default: return <InformationCircleIcon className="h-5 w-5 text-blue-500" />;
         }
+    };
+
+    const contactAdmin = () => {
+        window.open('https://wa.me/258846584761', '_blank');
     };
 
     return (
@@ -458,28 +534,117 @@ const AuthorDashboard: React.FC<AuthorDashboardProps> = ({
                         <BellIcon className="h-5 w-5" />
                         <span>{t('notifications')}</span>
                     </button>
+                    <button
+                        onClick={() => setActiveTab('messages')}
+                        className={`group w-full flex items-center gap-3 px-4 py-3 text-sm font-medium transition-all duration-200 rounded-lg mb-1 relative ${activeTab === 'messages' ? 'bg-indigo-50 dark:bg-indigo-900/40 text-brand-blue dark:text-indigo-400 shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#3e3e3e]'}`}
+                    >
+                        <ChatBubbleIcon className="h-5 w-5" />
+                        <span>Mensagens</span>
+                    </button>
                 </div>
             </aside>
 
             {/* Main Content */}
             <main className="flex-1 p-4 md:p-8 overflow-y-auto">
                 {activeTab === 'overview' && (
-                    <div className="space-y-8">
+                    <div className="space-y-8 animate-fade-in-down">
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                             <StatCard title={t('salesCount')} value={stats.totalBooksSold.toLocaleString()} icon={<ChartBarIcon className="h-6 w-6 text-blue-500"/>} />
                             <StatCard title={t('readersCount')} value={stats.totalReaders.toLocaleString()} icon={<UsersIcon className="h-6 w-6 text-green-500"/>} />
                             <StatCard title={t('revenue')} value={formatPrice(stats.totalSales * 0.7)} icon={<CurrencyDollarIcon className="h-6 w-6 text-yellow-500"/>} />
                         </div>
 
-                        <div className="bg-white dark:bg-[#212121] border border-gray-200 dark:border-gray-800 rounded-xl p-6 shadow-sm">
-                            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">{t('salesAnalytics')}</h2>
-                            <AnalyticsGraph data={salesData} labels={last7DaysLabels} />
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                            <div className="lg:col-span-2 bg-white dark:bg-[#212121] border border-gray-200 dark:border-gray-800 rounded-xl p-6 shadow-sm">
+                                <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">{t('salesAnalytics')}</h2>
+                                <AnalyticsGraph data={salesData} labels={last7DaysLabels} />
+                            </div>
+
+                            <div className="bg-white dark:bg-[#212121] border border-gray-200 dark:border-gray-800 rounded-xl p-6 shadow-sm">
+                                <h3 className="font-bold text-gray-900 dark:text-white mb-4">Livros Mais Vendidos</h3>
+                                <div className="space-y-4">
+                                    {topBooks.map(book => (
+                                        <div key={book.id} className="flex items-center gap-3">
+                                            <img src={book.coverUrl} alt={book.title} className="w-10 h-14 object-cover rounded shadow-sm" />
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-sm font-bold text-gray-900 dark:text-white truncate">{book.title}</p>
+                                                <p className="text-xs text-gray-500 dark:text-gray-400">{book.sales} vendas</p>
+                                            </div>
+                                            <span className="text-xs font-bold text-green-600 bg-green-100 dark:bg-green-900/20 px-2 py-1 rounded">#{topBooks.indexOf(book) + 1}</span>
+                                        </div>
+                                    ))}
+                                    {topBooks.length === 0 && <p className="text-xs text-gray-500">Nenhum dado de vendas ainda.</p>}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Recent Reviews and Messages Split */}
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                            {/* Recent Reviews Snippet */}
+                            <div className="bg-white dark:bg-[#212121] border border-gray-200 dark:border-gray-800 rounded-xl p-6 shadow-sm">
+                                <div className="flex justify-between items-center mb-4">
+                                    <h3 className="font-bold text-gray-900 dark:text-white">{t('recentReviews')}</h3>
+                                    <button onClick={() => setActiveTab('reviews')} className="text-xs text-indigo-500 hover:underline font-semibold">{t('viewAll')}</button>
+                                </div>
+                                <div className="space-y-4">
+                                    {authorReviews.slice(0, 3).map(review => (
+                                        <div key={review.id} className="p-3 bg-gray-50 dark:bg-[#2a2a2a] rounded-lg border border-gray-100 dark:border-gray-800">
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <div className="flex text-yellow-400">
+                                                    {[...Array(5)].map((_, i) => (
+                                                        <StarIcon key={i} className={`h-3 w-3 ${i < review.rating ? 'fill-current' : 'text-gray-300 dark:text-gray-600'}`} />
+                                                    ))}
+                                                </div>
+                                                <span className="text-xs text-gray-500 dark:text-gray-400">{new Date(review.date).toLocaleDateString()}</span>
+                                            </div>
+                                            <p className="text-xs text-gray-700 dark:text-gray-300 italic mb-2 line-clamp-2">"{review.comment}"</p>
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-xs font-bold text-gray-900 dark:text-white">- {review.userName}</span>
+                                                <span className="text-[10px] text-gray-500 truncate">em {review.bookTitle}</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {authorReviews.length === 0 && <p className="text-sm text-gray-500 text-center py-4">{t('noReviewsYet')}</p>}
+                                </div>
+                            </div>
+
+                            {/* Recent Messages Snippet */}
+                            <div className="bg-white dark:bg-[#212121] border border-gray-200 dark:border-gray-800 rounded-xl p-6 shadow-sm">
+                                <div className="flex justify-between items-center mb-4">
+                                    <h3 className="font-bold text-gray-900 dark:text-white">Mensagens Recentes</h3>
+                                    <button onClick={() => setActiveTab('messages')} className="text-xs text-indigo-500 hover:underline font-semibold">{t('viewAll')}</button>
+                                </div>
+                                <div className="space-y-3">
+                                    {recentMessages.map(chat => (
+                                        <div key={chat.id} className="p-3 bg-gray-50 dark:bg-[#2a2a2a] rounded-lg border border-gray-100 dark:border-gray-800 flex items-start gap-3">
+                                            <div className="bg-indigo-100 dark:bg-indigo-900/30 p-2 rounded-full flex-shrink-0">
+                                                <ChatBubbleIcon className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                                            </div>
+                                            <div className="min-w-0 flex-1">
+                                                <div className="flex justify-between items-center mb-1">
+                                                    <span className="text-xs font-bold text-gray-900 dark:text-white">Leitor</span>
+                                                    <span className="text-[10px] text-gray-400">{new Date(chat.lastUpdated).toLocaleDateString()}</span>
+                                                </div>
+                                                <p className="text-xs text-gray-600 dark:text-gray-400 truncate">
+                                                    {chat.messages[chat.messages.length - 1]?.content || 'Nova conversa iniciada'}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {recentMessages.length === 0 && <p className="text-sm text-gray-500 text-center py-4">Nenhuma mensagem.</p>}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="mt-12">
+                            <BecomeAuthorCTA onAction={() => setIsAddingBook(true)} />
                         </div>
                     </div>
                 )}
 
                 {activeTab === 'books' && (
                     <div>
+                        {/* ... (Rest of the 'books' tab content remains exactly the same) ... */}
                         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
                             <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{t('myBooks')}</h2>
                             <div className="flex items-center gap-4 w-full sm:w-auto">
@@ -560,6 +725,7 @@ const AuthorDashboard: React.FC<AuthorDashboardProps> = ({
 
                 {activeTab === 'reviews' && (
                     <div className="space-y-6">
+                        {/* ... (Rest of the 'reviews' tab content remains exactly the same) ... */}
                         <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">{t('reviews')}</h2>
                         {authorReviews.length > 0 ? (
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -595,6 +761,7 @@ const AuthorDashboard: React.FC<AuthorDashboardProps> = ({
 
                 {activeTab === 'notifications' && (
                     <div className="bg-white dark:bg-[#212121] rounded-lg shadow-sm border border-gray-200 dark:border-gray-800">
+                         {/* ... (Rest of the 'notifications' tab content remains exactly the same) ... */}
                          <h2 className="text-xl font-bold text-gray-900 dark:text-white p-6 border-b border-gray-100 dark:border-gray-700">{t('notifications')}</h2>
                         {notifications.length > 0 ? (
                              <div className="divide-y divide-gray-100 dark:divide-gray-700/50">
@@ -629,6 +796,68 @@ const AuthorDashboard: React.FC<AuthorDashboardProps> = ({
                                     <BellIcon className="h-8 w-8 text-gray-400" />
                                 </div>
                                 <h3 className="text-lg font-medium text-gray-900 dark:text-white">{t('noNotifications')}</h3>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {activeTab === 'messages' && (
+                    <div className="bg-white dark:bg-[#212121] rounded-lg shadow-sm border border-gray-200 dark:border-gray-800">
+                        {/* ... (Rest of the 'messages' tab content remains exactly the same) ... */}
+                        <h2 className="text-xl font-bold text-gray-900 dark:text-white p-6 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center">
+                            <span>Mensagens</span>
+                        </h2>
+                        
+                        {/* Contact Admin via WhatsApp Card */}
+                        <div className="p-6 bg-green-50 dark:bg-green-900/10 m-6 rounded-xl border border-green-200 dark:border-green-900/30 flex flex-col sm:flex-row items-center justify-between gap-4">
+                            <div className="flex items-center gap-4">
+                                <div className="bg-green-500 p-3 rounded-full text-white shadow-lg shadow-green-500/30">
+                                    <WhatsAppIcon className="h-6 w-6" />
+                                </div>
+                                <div>
+                                    <h3 className="font-bold text-gray-900 dark:text-white text-sm sm:text-base">Precisa de suporte imediato?</h3>
+                                    <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-300">Fale diretamente com o administrador via WhatsApp.</p>
+                                </div>
+                            </div>
+                            <button 
+                                onClick={contactAdmin}
+                                className="w-full sm:w-auto px-6 py-2.5 bg-green-600 hover:bg-green-700 text-white text-sm font-bold rounded-full shadow-md transition-transform active:scale-95 flex items-center justify-center gap-2"
+                            >
+                                <span>Falar com Admin</span>
+                                <WhatsAppIcon className="h-4 w-4" />
+                            </button>
+                        </div>
+
+                        <div className="border-t border-gray-100 dark:border-gray-700"></div>
+
+                        {chats.length > 0 ? (
+                            <div className="divide-y divide-gray-100 dark:divide-gray-700/50">
+                                {chats.map(chat => {
+                                    const lastMsg = chat.messages[chat.messages.length - 1];
+                                    return (
+                                        <div 
+                                            key={chat.id} 
+                                            className="p-6 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors flex gap-4 cursor-pointer"
+                                            onClick={() => onOpenChat(chat.id)}
+                                        >
+                                            <div className="bg-indigo-100 dark:bg-indigo-900/30 p-3 rounded-full">
+                                                <ChatBubbleIcon className="h-6 w-6 text-indigo-600 dark:text-indigo-400" />
+                                            </div>
+                                            <div className="flex-1">
+                                                <div className="flex justify-between items-start mb-1">
+                                                    <p className="text-sm font-bold text-gray-900 dark:text-white">Leitor</p>
+                                                    <span className="text-xs text-gray-500">{new Date(chat.lastUpdated).toLocaleDateString()}</span>
+                                                </div>
+                                                <p className="text-sm text-gray-600 dark:text-gray-400 truncate">{lastMsg ? lastMsg.content : 'Nova conversa iniciada'}</p>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        ) : (
+                            <div className="p-12 text-center">
+                                <ChatBubbleIcon className="h-12 w-12 text-gray-300 mx-auto mb-3" />
+                                <p className="text-gray-500 dark:text-gray-400">Nenhuma mensagem recebida de leitores.</p>
                             </div>
                         )}
                     </div>

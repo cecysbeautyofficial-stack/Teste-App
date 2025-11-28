@@ -1,7 +1,6 @@
-
 import React, { useState, useMemo } from 'react';
 import { Book, Author, User, Review } from '../types';
-import { XIcon, StarIcon, InformationCircleIcon, ChevronRightIcon, DocumentTextIcon, HeartIcon, SparklesIcon, UserCircleIcon, PencilIcon } from './Icons';
+import { XIcon, StarIcon, InformationCircleIcon, ChevronRightIcon, DocumentTextIcon, HeartIcon, SparklesIcon, UserCircleIcon, PencilIcon, HeadphonesIcon, ClockIcon } from './Icons';
 import SimpleBookCard from './SimpleBookCard';
 import { useAppContext } from '../contexts/AppContext';
 import UserControls from './UserControls';
@@ -34,7 +33,7 @@ const BookCarousel: React.FC<{title: string, books: Book[], onBookSelect: (book:
             <h3 className="text-lg md:text-xl font-bold text-gray-900 dark:text-white">{title}</h3>
             <ChevronRightIcon className="h-6 w-6 text-gray-400" />
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
             {books.map(b => <SimpleBookCard key={b.id} book={b} onClick={onBookSelect} onBuyNow={onBuyNow} purchasedBooks={purchasedBooks} />)}
         </div>
     </div>
@@ -51,9 +50,9 @@ const BookDetail: React.FC<BookDetailProps> = ({
     const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
     const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
 
-    const moreByAuthor = allBooks.filter(b => b.author.name === book.author.name && b.id !== book.id).slice(0, 10);
-    const customersAlsoBought = allBooks.filter(b => b.category === book.category && b.id !== book.id).slice(0, 10);
-    const moreLikeThis = allBooks.filter(b => b.category === book.category && b.id !== book.id).slice(0, 10);
+    const moreByAuthor = allBooks.filter(b => b.author.name === book.author.name && b.id !== book.id).slice(0, 12);
+    const customersAlsoBought = allBooks.filter(b => b.category === book.category && b.id !== book.id).slice(0, 12);
+    const moreLikeThis = allBooks.filter(b => b.category === book.category && b.id !== book.id).slice(0, 12);
     
     const relatedAuthors = useMemo(() => {
         const authorsInCategory = allBooks
@@ -101,6 +100,7 @@ const BookDetail: React.FC<BookDetailProps> = ({
                      new Date() >= new Date(book.saleStartDate) && 
                      new Date() <= new Date(book.saleEndDate);
 
+    const isAudiobook = !!book.audioUrl;
 
   return (
     <div className="fixed inset-0 bg-white/80 dark:bg-black/80 backdrop-blur-2xl z-50 overflow-y-auto text-gray-900 dark:text-white animate-slide-up transition-colors duration-300">
@@ -141,6 +141,12 @@ const BookDetail: React.FC<BookDetailProps> = ({
                                 <span>{t('isFeatured')}</span>
                             </div>
                         )}
+                        {isAudiobook && (
+                            <div className="absolute top-0 right-0 z-10 translate-x-2 -translate-y-2 bg-black/80 text-white text-xs font-bold px-3 py-1.5 rounded-full shadow-lg flex items-center gap-1 border-2 border-white dark:border-[#0f0f0f]">
+                                <HeadphonesIcon className="h-3 w-3" />
+                                <span>Audio</span>
+                            </div>
+                        )}
                         <img 
                             src={book.coverUrl} 
                             alt={book.title} 
@@ -165,6 +171,12 @@ const BookDetail: React.FC<BookDetailProps> = ({
                             <span>({ (book.sales || 25) + (book.readers || 12) })</span>
                             <span className="text-gray-400 dark:text-gray-600">•</span>
                             <span className="bg-gray-100 dark:bg-white/10 px-2 py-0.5 rounded-full text-xs font-medium">{book.category}</span>
+                            {isAudiobook && (
+                                <>
+                                    <span className="text-gray-400 dark:text-gray-600">•</span>
+                                    <span className="flex items-center gap-1 font-medium"><ClockIcon className="h-3 w-3" /> {book.duration}</span>
+                                </>
+                            )}
                         </div>
 
                         {/* Action Box */}
@@ -200,9 +212,16 @@ const BookDetail: React.FC<BookDetailProps> = ({
                                 </button>
                                 <button 
                                     onClick={handlePrimaryAction}
-                                    className="w-full bg-brand-red hover:bg-red-600 text-white rounded-xl py-3 font-bold transition-transform active:scale-95 flex-shrink-0 shadow-lg shadow-red-500/20"
+                                    className="w-full bg-brand-red hover:bg-red-600 text-white rounded-xl py-3 font-bold transition-transform active:scale-95 flex-shrink-0 shadow-lg shadow-red-500/20 flex items-center justify-center gap-2"
                                 >
-                                    {isPurchased ? t('read') : t('buyNow')}
+                                    {isPurchased ? (
+                                        <>
+                                            {isAudiobook ? <HeadphonesIcon className="h-5 w-5" /> : <DocumentTextIcon className="h-5 w-5" />}
+                                            {isAudiobook ? 'Ouvir' : t('read')}
+                                        </>
+                                    ) : (
+                                        t('buyNow')
+                                    )}
                                 </button>
                             </div>
                         </div>
@@ -260,7 +279,7 @@ const BookDetail: React.FC<BookDetailProps> = ({
                              <button 
                                 onClick={() => setIsFeedbackModalOpen(true)}
                                 className="flex items-center gap-2 text-sm font-bold text-indigo-600 dark:text-indigo-400 hover:underline bg-indigo-50 dark:bg-indigo-900/30 px-4 py-2 rounded-full transition-colors"
-                             >
+                            >
                                  <PencilIcon className="h-4 w-4" />
                                  {t('writeReview')}
                              </button>
@@ -335,8 +354,8 @@ const BookDetail: React.FC<BookDetailProps> = ({
                             <span className="font-semibold text-gray-900 dark:text-white">{book.language || t('portuguese')}</span>
                         </div>
                         <div className="flex flex-col">
-                            <span className="text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400 font-bold mb-1">{t('pages')}</span>
-                            <span className="font-semibold text-gray-900 dark:text-white">{book.pages || 'N/A'}</span>
+                            <span className="text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400 font-bold mb-1">{isAudiobook ? 'Duração' : t('pages')}</span>
+                            <span className="font-semibold text-gray-900 dark:text-white">{isAudiobook ? book.duration : (book.pages || 'N/A')}</span>
                         </div>
                     </div>
                 </div>

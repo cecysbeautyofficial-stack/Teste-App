@@ -1,119 +1,137 @@
 
-import React from 'react';
-import { Book } from '../types';
-import { StarIcon, CheckCircleIcon, InformationCircleIcon } from './Icons';
+import React, { useState, useEffect } from 'react';
+import { Book, User } from '../types';
+import { ArrowRightIcon, StarIcon, SparklesIcon } from './Icons';
 import { useAppContext } from '../contexts/AppContext';
-import Logo from './Logo';
 
 interface HeroBannerProps {
-  book: Book;
-  onBuyNow: (book: Book) => void;
-  onRead: (book: Book) => void;
-  onMoreInfo: (book: Book) => void;
-  isPurchased: boolean;
+  books: Book[];
+  onExplore: () => void;
+  currentUser: User | null;
+  onRegister: () => void;
+  onLogin: () => void;
+  onBookClick: (book: Book) => void;
 }
 
-const HeroBanner: React.FC<HeroBannerProps> = ({ book, onBuyNow, onRead, onMoreInfo, isPurchased }) => {
-  const { t, formatPrice } = useAppContext();
+const HeroBanner: React.FC<HeroBannerProps> = ({ 
+  books, 
+  onExplore, 
+  currentUser, 
+  onRegister, 
+  onLogin, 
+  onBookClick 
+}) => {
+  const { t } = useAppContext();
+  const [currentIndex, setCurrentIndex] = useState(0);
+  
+  // Filter top books for the slider (e.g., top 5)
+  const sliderBooks = books.slice(0, 5);
 
-  // Standard button classes
-  const btnBase = "px-6 py-3 rounded-lg font-bold text-base transition-all transform active:scale-95 flex items-center gap-2 shadow-md";
-  const btnPrimary = "bg-brand-red hover:bg-red-700 text-white shadow-red-500/30 hover:shadow-red-500/50";
-  const btnSuccess = "bg-green-600 hover:bg-green-700 text-white shadow-green-500/30 hover:shadow-green-500/50";
-  const btnSecondary = "bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-gray-700";
+  useEffect(() => {
+    if (sliderBooks.length <= 1) return;
+    const interval = setInterval(() => {
+        setCurrentIndex((prev) => (prev + 1) % sliderBooks.length);
+    }, 6000);
+    return () => clearInterval(interval);
+  }, [sliderBooks.length]);
+
+  const currentBook = sliderBooks[currentIndex];
+
+  if (!currentBook) return null;
 
   return (
-    <div className="relative w-full h-[500px] md:h-[600px] overflow-hidden rounded-2xl mb-12 group shadow-2xl">
-      {/* Background Layer */}
+    <div className="relative w-full overflow-hidden rounded-[2.5rem] bg-[#0a0a0a] shadow-2xl mb-12 md:mb-20 group/hero h-[500px] md:h-[600px]">
+      {/* Cinematic Background Gradient */}
+      <div className="absolute inset-0 bg-gradient-to-br from-[#151932] via-[#16213e] to-[#0f0f0f] z-0"></div>
+      
+      {/* Background Image Blurred (Optional aesthetic) */}
       <div 
-        className="absolute inset-0 bg-cover bg-center transition-transform duration-1000 group-hover:scale-105"
-        style={{ backgroundImage: `url(${book.coverUrl})` }}
-      />
-      {/* Blur & Gradient Overlay */}
-      <div className="absolute inset-0 backdrop-blur-xl bg-white/30 dark:bg-black/60" />
-      <div className="absolute inset-0 bg-gradient-to-t from-white via-white/50 to-transparent dark:from-[#0f0f0f] dark:via-[#0f0f0f]/80 dark:to-transparent" />
-      <div className="absolute inset-0 bg-gradient-to-r from-white via-white/80 to-transparent dark:from-[#0f0f0f] dark:via-[#0f0f0f]/90 dark:to-transparent" />
+        className="absolute inset-0 opacity-20 bg-cover bg-center blur-3xl transition-all duration-1000"
+        style={{ backgroundImage: `url(${currentBook.coverUrl})` }}
+      ></div>
 
-      {/* Content */}
-      <div className="relative z-10 flex items-center h-full px-6 md:px-12 lg:px-20">
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-8 items-center w-full">
-            {/* Text Content */}
-            <div className="md:col-span-7 lg:col-span-6 space-y-6">
-                <div className="flex items-center gap-4 mb-4">
-                     <Logo />
-                </div>
-                <div className="flex items-center gap-2">
-                    <span className="bg-brand-red text-white text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider shadow-lg shadow-red-500/30">
-                        {t('featuredCollection')}
-                    </span>
-                    <span className="flex items-center gap-1 text-yellow-500 font-bold text-sm">
-                        <StarIcon className="h-4 w-4 fill-current" />
-                        {book.rating.toFixed(1)}
-                    </span>
-                </div>
+      <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/stardust.png')] opacity-[0.05] pointer-events-none"></div>
 
-                <h1 className="text-4xl md:text-5xl lg:text-7xl font-extrabold text-gray-900 dark:text-white leading-tight line-clamp-2">
-                    {book.title}
-                </h1>
-                
-                <div className="flex items-center gap-2 text-lg md:text-xl text-gray-600 dark:text-gray-300 font-medium">
-                    <span>{book.author.name}</span>
-                    <span className="w-1.5 h-1.5 rounded-full bg-gray-400"></span>
-                    <span>{book.category}</span>
-                </div>
+      <div className="relative z-10 h-full flex flex-col lg:flex-row items-center justify-between px-6 md:px-16 lg:px-24 py-8 md:py-12 gap-8">
+        
+        {/* Content - Left Side */}
+        <div className="flex-1 flex flex-col justify-center items-start space-y-4 md:space-y-6 max-w-2xl z-20">
+          
+          {/* Badge */}
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/10 border border-white/10 text-yellow-400 text-xs font-bold uppercase tracking-wider backdrop-blur-md shadow-lg animate-fade-in">
+            <SparklesIcon className="h-3 w-3" />
+            <span>Destaque da Semana</span>
+          </div>
 
-                <p className="text-gray-600 dark:text-gray-400 text-base md:text-lg line-clamp-3 max-w-2xl leading-relaxed">
-                    {book.description}
-                </p>
+          {/* Title */}
+          <h1 className="text-3xl md:text-5xl lg:text-6xl font-extrabold text-white leading-[1.1] tracking-tight drop-shadow-2xl transition-all duration-500">
+            {currentBook.title}
+          </h1>
+          
+          {/* Metadata */}
+          <div className="flex flex-wrap items-center gap-4 text-sm md:text-base text-gray-300">
+             <div className="flex items-center gap-1 text-yellow-400 font-bold">
+                <StarIcon className="h-4 w-4 fill-current" /> 
+                <span>{currentBook.rating.toFixed(1)}</span>
+             </div>
+             <span className="w-1 h-1 bg-gray-500 rounded-full"></span>
+             <span className="font-medium text-white">{currentBook.author.name}</span>
+             <span className="w-1 h-1 bg-gray-500 rounded-full"></span>
+             <span className="text-gray-400">{currentBook.category}</span>
+          </div>
 
-                <div className="flex flex-wrap items-center gap-4 pt-4">
-                    {isPurchased ? (
-                        <button 
-                            onClick={() => onRead(book)}
-                            className={`${btnBase} ${btnSuccess}`}
-                        >
-                            <CheckCircleIcon className="h-5 w-5" />
-                            {t('read')}
-                        </button>
-                    ) : (
-                        <button 
-                            onClick={() => onBuyNow(book)}
-                            className={`${btnBase} ${btnPrimary}`}
-                        >
-                            <span>{t('buyNow')}</span>
-                            <span className="bg-white/20 px-2 py-0.5 rounded text-sm ml-1">
-                                {formatPrice(book.salePrice || book.price)}
-                            </span>
-                        </button>
-                    )}
-                    <button 
-                        onClick={() => onMoreInfo(book)}
-                        className={`${btnBase} ${btnSecondary}`}
-                    >
-                        <InformationCircleIcon className="h-5 w-5" />
-                        {t('viewDetails')}
-                    </button>
-                </div>
-            </div>
+          {/* Synopsis */}
+          <p className="text-gray-400 text-sm md:text-lg leading-relaxed line-clamp-3 font-medium max-w-xl transition-all duration-500">
+            {currentBook.description}
+          </p>
 
-            {/* Cover Image (Desktop) */}
-            <div className="hidden md:block md:col-span-5 lg:col-span-6 relative">
-                <div className="relative w-[300px] lg:w-[380px] mx-auto transform rotate-6 transition-transform duration-500 hover:rotate-0 hover:scale-105">
-                     {/* Book Spine Effect */}
-                     <div className="absolute left-0 top-0 bottom-0 w-4 bg-white/10 z-20 rounded-l-lg backdrop-blur-sm"></div>
-                     <img 
-                        src={book.coverUrl} 
-                        alt={book.title} 
-                        className="w-full h-auto rounded-lg shadow-[0_35px_60px_-15px_rgba(0,0,0,0.5)] object-cover aspect-[2/3] border-t border-r border-white/10" 
-                    />
-                     {book.isFeatured && (
-                        <div className="absolute -top-6 -right-6 bg-yellow-400 text-black font-bold w-24 h-24 rounded-full flex items-center justify-center transform rotate-12 shadow-lg z-30 border-4 border-white dark:border-[#0f0f0f]">
-                            <span className="text-center text-xs leading-tight">BEST<br/>SELLER</span>
-                        </div>
-                    )}
-                </div>
+          {/* Actions */}
+          <div className="pt-4 flex flex-wrap gap-4">
+             <button 
+                onClick={() => onBookClick(currentBook)}
+                className="bg-brand-red hover:bg-red-600 text-white px-6 md:px-8 py-3 md:py-3.5 rounded-xl font-bold text-sm md:text-base transition-all transform hover:-translate-y-1 shadow-lg shadow-red-900/30 flex items-center gap-2"
+            >
+                <span>Ler Agora</span>
+                <ArrowRightIcon className="h-5 w-5" />
+            </button>
+            
+            {!currentUser && (
+                <button 
+                    onClick={onRegister}
+                    className="bg-white/5 hover:bg-white/10 text-white px-6 md:px-8 py-3 md:py-3.5 rounded-xl font-bold text-sm md:text-base transition-all border border-white/10 backdrop-blur-md"
+                >
+                    Criar Conta Grátis
+                </button>
+            )}
+          </div>
+        </div>
+
+        {/* Visuals - Right Side */}
+        <div className="flex-1 h-full flex items-center justify-center lg:justify-end relative z-10 mt-4 lg:mt-0">
+            {/* Book Cover with transition */}
+            <div className="relative w-48 md:w-72 aspect-[2/3] transform transition-all duration-700 ease-out hover:scale-105 group/cover">
+                <div className="absolute inset-0 bg-black/50 blur-2xl rounded-full transform translate-y-10 scale-90 opacity-60"></div>
+                <img 
+                    key={currentBook.id} // Key change triggers animation
+                    src={currentBook.coverUrl} 
+                    alt={currentBook.title} 
+                    className="relative w-full h-full object-cover rounded-xl shadow-2xl border border-white/10 animate-slide-up"
+                />
             </div>
         </div>
+
+      </div>
+
+      {/* Slider Indicators */}
+      <div className="absolute bottom-6 md:bottom-8 left-1/2 transform -translate-x-1/2 flex gap-2 z-20">
+        {sliderBooks.map((_, idx) => (
+            <button 
+                key={idx}
+                onClick={() => setCurrentIndex(idx)}
+                className={`h-2 rounded-full transition-all duration-300 ${idx === currentIndex ? 'w-8 bg-brand-red' : 'w-2 bg-white/30 hover:bg-white/50'}`}
+                aria-label={`Slide ${idx + 1}`}
+            />
+        ))}
       </div>
     </div>
   );

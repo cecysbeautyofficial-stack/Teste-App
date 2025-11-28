@@ -1,5 +1,3 @@
-
-
 import React, { useState, useMemo } from 'react';
 import { Book, PaymentMethod } from '../types';
 import { XIcon, CreditCardIcon, PhoneIcon, CheckCircleIcon, LockClosedIcon, InformationCircleIcon } from './Icons';

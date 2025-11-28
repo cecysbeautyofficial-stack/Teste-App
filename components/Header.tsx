@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { User, Notification, View } from '../types';
 import Logo from './Logo';
@@ -33,9 +32,9 @@ const Header: React.FC<HeaderProps> = ({
   return (
     <header className="sticky top-0 z-50 transition-colors duration-300 border-b border-white/30 dark:border-white/10 bg-white/40 dark:bg-black/40 backdrop-blur-xl shadow-sm">
       <div className="max-w-[1600px] mx-auto px-4 md:px-8 lg:px-16">
-        <div className="flex items-center justify-between h-20">
+        <div className="flex items-center justify-between h-16 md:h-20 transition-all duration-300">
           <button onClick={onNavigateHome} className="flex-shrink-0 hover:opacity-80 transition-opacity outline-none">
-            <Logo />
+            <Logo className="scale-90 md:scale-100 origin-left" />
           </button>
           
           <UserControls 

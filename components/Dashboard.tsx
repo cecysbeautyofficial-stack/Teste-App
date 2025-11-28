@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { User, Book, Purchase, PaymentMethod, Author, Notification } from '../types';
+import { User, Book, Purchase, PaymentMethod, Author, Notification, Chat, NewsArticle } from '../types';
 import ReaderDashboard from './dashboards/ReaderDashboard';
 import AuthorDashboard from './dashboards/AuthorDashboard';
 import AdminDashboard from './dashboards/AdminDashboard';
@@ -16,7 +16,7 @@ interface DashboardProps {
   allPurchases: Purchase[];
   onDeleteBook: (bookId: string) => void;
   onUpdateBook: (bookId: string, updatedData: Partial<Book>) => void;
-  onAddBook: (newBookData: Omit<Book, 'id' | 'author' | 'coverUrl' | 'rating' | 'sales' | 'readers' | 'publishDate'> & { coverImage?: File; bookFile?: File }, authorOverride?: Author) => void;
+  onAddBook: (newBookData: Omit<Book, 'id' | 'author' | 'coverUrl' | 'rating' | 'sales' | 'readers' | 'publishDate'> & { coverImage?: File; bookFile?: File; audioFile?: File }, authorOverride?: Author) => void;
   favoritedBooks: Set<string>;
   onToggleFavorite: (bookId: string) => void;
   dashboardFavoritesPage: number;
@@ -38,6 +38,15 @@ interface DashboardProps {
   activeTab: string;
   notifications: Notification[];
   onMarkAsRead: (id: string) => void;
+  chats: Chat[];
+  onOpenChat: (chatId: string) => void;
+  news: NewsArticle[];
+  onAddNews: (news: Omit<NewsArticle, 'id' | 'date' | 'authorId'> & { imageFile?: File }) => void;
+  onUpdateNews: (id: string, news: Partial<NewsArticle> & { imageFile?: File }) => void;
+  onDeleteNews: (id: string) => void;
+  onBecomeAuthor?: () => void;
+  onAddUser: (userData: Omit<User, 'id' | 'status'> & { status: 'active' | 'pending' | 'blocked' }) => void;
+  onAddNotification?: (notification: Omit<Notification, 'id' | 'date' | 'read'>) => void;
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ 
@@ -49,7 +58,8 @@ const Dashboard: React.FC<DashboardProps> = ({
     onUpdateUser, onDeleteUser,
     paymentMethods, onUpdatePaymentMethod, onDeletePaymentMethod, onAddPaymentMethod,
     authors, onSelectAuthor, categories, onAddCategory, onAddAuthor,
-    activeTab, notifications, onMarkAsRead
+    activeTab, notifications, onMarkAsRead, chats, onOpenChat,
+    news, onAddNews, onUpdateNews, onDeleteNews, onBecomeAuthor, onAddUser, onAddNotification
 }) => {
   const renderDashboard = () => {
     switch (user.role) {
@@ -74,6 +84,9 @@ const Dashboard: React.FC<DashboardProps> = ({
                     activeTab={activeTab}
                     notifications={notifications}
                     onMarkAsRead={onMarkAsRead}
+                    chats={chats}
+                    onOpenChat={onOpenChat}
+                    onBecomeAuthor={onBecomeAuthor || (() => {})}
                 />;
       case 'author':
         return <AuthorDashboard 
@@ -90,6 +103,8 @@ const Dashboard: React.FC<DashboardProps> = ({
                     activeTab={activeTab}
                     notifications={notifications}
                     onMarkAsRead={onMarkAsRead}
+                    chats={chats}
+                    onOpenChat={onOpenChat}
                 />;
       case 'admin':
         return <AdminDashboard 
@@ -115,6 +130,14 @@ const Dashboard: React.FC<DashboardProps> = ({
                     activeTab={activeTab}
                     notifications={notifications}
                     onMarkAsRead={onMarkAsRead}
+                    chats={chats}
+                    onOpenChat={onOpenChat}
+                    news={news}
+                    onAddNews={onAddNews}
+                    onUpdateNews={onUpdateNews}
+                    onDeleteNews={onDeleteNews}
+                    onAddUser={onAddUser}
+                    onAddNotification={onAddNotification}
                 />;
       default:
         return <div className="text-center p-8">Função de usuário desconhecida.</div>;

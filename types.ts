@@ -1,4 +1,3 @@
-
 export interface Author {
   id: string;
   name: string;
@@ -36,6 +35,7 @@ export interface Book {
   publishDate?: string;
   pages?: number;
   language?: string;
+  isbn?: string;
   // New fields
   salePrice?: number;
   saleStartDate?: string;
@@ -43,6 +43,28 @@ export interface Book {
   isFeatured?: boolean;
   reviews?: Review[];
   pdfUrl?: string;
+  audioUrl?: string; // For Audiobooks
+  duration?: string; // e.g., "12h 30m"
+}
+
+export interface Comment {
+  id: string;
+  userId: string;
+  userName: string;
+  userAvatar?: string;
+  content: string;
+  date: string;
+}
+
+export interface NewsArticle {
+  id: string;
+  title: string;
+  description: string;
+  imageUrl: string;
+  hashtags: string[];
+  date: string;
+  authorId: string; // Admin ID
+  comments?: Comment[];
 }
 
 export interface PaymentMethod {
@@ -66,6 +88,7 @@ export interface User {
   password?: string;
   role: 'reader' | 'author' | 'admin';
   status: 'active' | 'pending' | 'blocked'; // New status field
+  country?: string; // New country field
   avatarUrl?: string;
   whatsapp?: string;
   preferredPaymentMethod?: string;
@@ -73,6 +96,7 @@ export interface User {
   emailNotificationsEnabled?: boolean; // New email notification setting
   following?: string[]; // Array of Author IDs
   authorOnboardingData?: AuthorOnboardingData; // Store survey results
+  joinedDate?: string;
 }
 
 export interface Notification {
@@ -88,7 +112,21 @@ export interface Notification {
   emailHtml?: string; // Optional HTML content of the email sent
 }
 
-export type View = 'home' | 'library' | 'book_store' | 'search' | 'detail' | 'reader' | 'preview' | 'author_profile' | 'dashboard' | 'collection';
+export interface Message {
+  id: string;
+  senderId: string;
+  content: string;
+  timestamp: string;
+}
+
+export interface Chat {
+  id: string;
+  participants: string[]; // Array of user IDs
+  messages: Message[];
+  lastUpdated: string;
+}
+
+export type View = 'home' | 'library' | 'book_store' | 'search' | 'detail' | 'reader' | 'preview' | 'author_profile' | 'dashboard' | 'collection' | 'blog' | 'news_detail' | 'authors' | 'audiobooks';
 
 export interface Purchase {
   userId: string;

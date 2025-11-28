@@ -13,6 +13,7 @@ export type TranslationKey =
   | 'featuredCollection'
   | 'recentlyViewed'
   | 'recommendedForYou'
+  | 'popularAuthors'
   | 'categories'
   | 'topSellers'
   | 'freeBooks'
@@ -318,7 +319,17 @@ export type TranslationKey =
   | 'newReviewNotifMessage'
   | 'authorProfileUpdateNotifTitle'
   | 'authorProfileUpdateNotifMessage'
-  | 'allBooks';
+  | 'allBooks'
+  | 'confirmEmailTitle'
+  | 'confirmEmailMessage'
+  | 'goToLogin'
+  | 'emailConfirmationNote'
+  | 'booksOnSale'
+  | 'previousPage'
+  | 'nextPage'
+  | 'authors'
+  | 'news'
+  | 'eBooks';
 
 export const translations: Record<string, Record<TranslationKey, string>> = {
   pt: {
@@ -335,6 +346,7 @@ export const translations: Record<string, Record<TranslationKey, string>> = {
     featuredCollection: 'Coleção em Destaque',
     recentlyViewed: 'Vistos Recentemente',
     recommendedForYou: 'Recomendado para Você',
+    popularAuthors: 'Autores Populares',
     categories: 'Categorias',
     topSellers: 'Mais Vendidos',
     freeBooks: 'Livros Gratuitos',
@@ -549,7 +561,7 @@ export const translations: Record<string, Record<TranslationKey, string>> = {
     clickToUpload: 'Clique para carregar',
     orDragAndDrop: 'ou arraste e solte',
     fileSizeLimit: 'Tamanho máx.',
-    showingResults: 'Mostrando {start}-{end} de {total}',
+    showingResults: 'Mostrando {start}-{end} of {total}',
     continueWithGoogle: 'Continuar com Google',
     signUpWithGoogle: 'Cadastrar com Google',
     or: 'ou',
@@ -641,6 +653,16 @@ export const translations: Record<string, Record<TranslationKey, string>> = {
     authorProfileUpdateNotifTitle: 'Perfil de Autor Atualizado',
     authorProfileUpdateNotifMessage: 'O autor {authorName} atualizou suas informações de perfil.',
     allBooks: 'Todos os Livros',
+    confirmEmailTitle: 'Confirme seu Email',
+    confirmEmailMessage: 'Um link de confirmação foi enviado para {email}. Verifique sua caixa de entrada (e spam) para ativar sua conta.',
+    goToLogin: 'Ir para Login',
+    emailConfirmationNote: 'Nota: Será necessário confirmar seu email para ativar a conta.',
+    booksOnSale: 'Livros em Promoção',
+    previousPage: 'Anterior',
+    nextPage: 'Próxima',
+    authors: 'Autores',
+    news: 'Notícias',
+    eBooks: 'E-books Populares',
   },
   en: {
     home: 'Home',
@@ -656,6 +678,7 @@ export const translations: Record<string, Record<TranslationKey, string>> = {
     featuredCollection: 'Featured Collection',
     recentlyViewed: 'Recently Viewed',
     recommendedForYou: 'Recommended For You',
+    popularAuthors: 'Popular Authors',
     categories: 'Categories',
     topSellers: 'Top Sellers',
     freeBooks: 'Free Books',
@@ -962,5 +985,15 @@ export const translations: Record<string, Record<TranslationKey, string>> = {
     authorProfileUpdateNotifTitle: 'Author Profile Updated',
     authorProfileUpdateNotifMessage: 'Author {authorName} updated their profile information.',
     allBooks: 'All Books',
+    confirmEmailTitle: 'Confirm Your Email',
+    confirmEmailMessage: 'A confirmation link has been sent to {email}. Please check your inbox (and spam) to activate your account.',
+    goToLogin: 'Go to Login',
+    emailConfirmationNote: 'Note: You will need to confirm your email to activate your account.',
+    booksOnSale: 'Books on Sale',
+    previousPage: 'Previous',
+    nextPage: 'Next',
+    authors: 'Authors',
+    news: 'News',
+    eBooks: 'Popular E-books',
   }
 };
